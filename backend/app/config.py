@@ -5,6 +5,10 @@ Reads settings from environment variables with sensible defaults for local devel
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file for local development
+load_dotenv()
 
 # === Paths ===
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # AuditAI/

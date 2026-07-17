@@ -9,6 +9,7 @@ psycopg2-binary>=2.9.9
 python-multipart>=0.0.9
 requests>=2.31.0
 aiofiles>=23.2.0
+python-dotenv>=1.0.0
 
 # === OCR ===
 pytesseract>=0.3.10
