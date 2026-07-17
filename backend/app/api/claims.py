@@ -111,13 +111,20 @@ async def upload_claims(
     loaded = 0
     errors = []
 
+    # Fetch all existing claim IDs at once to avoid N+1 queries
+    existing_claim_ids = set(r[0] for r in db.query(ExpenseClaim.claim_id).all())
+    
+    # Get default entity once
+    default_entity = db.query(Entity).filter(Entity.name == "APAC Entity").first()
+    entity_id = default_entity.id if default_entity else None
+
+    claims_to_add = []
     for idx, row in df.iterrows():
         try:
             claim_id = str(row["claim_id"]).strip()
 
-            # Skip duplicates
-            existing = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
-            if existing:
+            # Skip duplicates using our in-memory set
+            if claim_id in existing_claim_ids:
                 continue
 
             # Parse amount
@@ -135,10 +142,6 @@ async def upload_claims(
 
             fraud_type = str(row.get("fraud_type", "none")).strip() if pd.notna(row.get("fraud_type")) else "none"
 
-            # Get default entity
-            default_entity = db.query(Entity).filter(Entity.name == "APAC Entity").first()
-            entity_id = default_entity.id if default_entity else None
-
             claim = ExpenseClaim(
                 claim_id=claim_id,
                 employee_id=str(row["employee_id"]).strip(),
@@ -153,12 +156,15 @@ async def upload_claims(
                 fraud_type=fraud_type,
                 entity_id=entity_id,
             )
-            db.add(claim)
+            claims_to_add.append(claim)
+            existing_claim_ids.add(claim_id) # prevent duplicate inserts from the same file
             loaded += 1
         except Exception as e:
             errors.append({"row": idx + 1, "error": str(e)})
 
-    db.commit()
+    if claims_to_add:
+        db.add_all(claims_to_add)
+        db.commit()
 
     return UploadResponse(
         status="success" if not errors else "partial_success",
