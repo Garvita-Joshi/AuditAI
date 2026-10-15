@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from backend.app.db import get_db
+from backend.app.auth.security import assert_can_review, assert_can_view_claim, get_current_user, require_roles
+from backend.app.models.auth import AuthUser
 from backend.app.models.expense import Case, CaseAuditTrail, ExpenseClaim
 from backend.app.schemas.expense import CaseAuditTrailResponse, CaseResponse
 
@@ -19,7 +21,8 @@ router = APIRouter(prefix="/api/v1/cases", tags=["Cases"])
 @router.get("", response_model=List[CaseResponse])
 def list_cases(
     status_filter: str = Query(None, alias="status"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_roles("maker", "checker", "admin")),
 ):
     """List all active or closed investigation cases."""
     query = db.query(Case).join(ExpenseClaim)
@@ -56,29 +59,30 @@ def maker_recommend(
     claim_id: str,
     action: str = Query(..., regex="^(approve|reject)$"),
     notes: str = Query(..., min_length=5),
-    maker_id: str = Query("Default Maker"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(get_current_user),
 ):
     """
     Maker action: Review the flagged claim and recommend either approval or rejection.
     """
-    case = db.query(Case).filter(Case.claim_id == claim_id).first()
+    claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
+    if not claim:
+        raise HTTPException(404, f"Claim {claim_id} not found.")
+    if claim.status not in ("flagged", "processing"):
+        raise HTTPException(400, "Only flagged claims can enter case review.")
+    case = claim.case
     if not case:
-        # Create case if missing (auto-heal)
-        claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
-        if not claim:
-            raise HTTPException(404, f"Claim {claim_id} not found.")
+        # A flagged import can be given a case if scoring did not create one.
         case = Case(claim_id=claim_id, status="open")
         db.add(case)
-        db.commit()
-        db.refresh(case)
+        db.flush()
+        claim.case = case
 
-    if case.status not in ("open", "maker_recommended_approve", "maker_recommended_reject"):
-        raise HTTPException(400, f"Cannot perform Maker action on a case with status {case.status}.")
+    assert_can_review(db, user, claim, "maker")
 
     new_status = "maker_recommended_approve" if action == "approve" else "maker_recommended_reject"
     case.status = new_status
-    case.maker_id = maker_id
+    case.maker_id = str(user.id)
     case.maker_notes = notes
     case.updated_at = datetime.utcnow()
 
@@ -87,7 +91,7 @@ def maker_recommend(
     trail = CaseAuditTrail(
         case_id=case.id,
         action=trail_action,
-        performed_by="maker",
+        performed_by=f"maker: {user.email}",
         notes=notes
     )
     db.add(trail)
@@ -104,8 +108,8 @@ def checker_signoff(
     claim_id: str,
     action: str = Query(..., regex="^(approve|reject)$"),
     notes: str = Query(..., min_length=5),
-    checker_id: str = Query("Default Checker"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(get_current_user),
 ):
     """
     Checker action: Final sign-off. Approve or reject the claim, closing the case.
@@ -114,15 +118,11 @@ def checker_signoff(
     if not case:
         raise HTTPException(404, f"Case for claim {claim_id} not found.")
 
-    if case.status not in ("maker_recommended_approve", "maker_recommended_reject", "open"):
-        raise HTTPException(400, f"Cannot sign-off on a case with status {case.status}.")
-
-    if checker_id == case.maker_id:
-        raise HTTPException(400, "Segregation of Duties Violation: Checker cannot be the same person as Maker.")
+    assert_can_review(db, user, case.claim, "checker")
 
     new_status = "closed_approved" if action == "approve" else "closed_rejected"
     case.status = new_status
-    case.checker_id = checker_id
+    case.checker_id = str(user.id)
     case.checker_notes = notes
     case.updated_at = datetime.utcnow()
 
@@ -131,7 +131,7 @@ def checker_signoff(
     trail = CaseAuditTrail(
         case_id=case.id,
         action=trail_action,
-        performed_by="checker",
+        performed_by=f"checker: {user.email}",
         notes=notes
     )
     db.add(trail)
@@ -144,9 +144,14 @@ def checker_signoff(
 
 
 @router.get("/{claim_id}/trail", response_model=List[CaseAuditTrailResponse])
-def get_case_audit_trail(claim_id: str, db: Session = Depends(get_db)):
+def get_case_audit_trail(claim_id: str, db: Session = Depends(get_db),
+                         user: AuthUser = Depends(get_current_user)):
     """Fetch the append-only audit trail for a case."""
-    case = db.query(Case).filter(Case.claim_id == claim_id).first()
+    claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
+    if not claim:
+        raise HTTPException(404, f"Claim {claim_id} not found.")
+    assert_can_view_claim(db, user, claim)
+    case = claim.case
     if not case:
         return []
     return db.query(CaseAuditTrail).filter(CaseAuditTrail.case_id == case.id).order_by(CaseAuditTrail.timestamp.asc()).all()

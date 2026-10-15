@@ -15,6 +15,10 @@ trained_models/
 *.pt
 *.pkl
 *.joblib
+scripts/artifacts/model-backups/
+scripts/artifacts/demo-credentials.txt
+scripts/artifacts/time-evidence-backups/
+scripts/artifacts/case-reconciliation-backups/
 
 # Node
 node_modules/

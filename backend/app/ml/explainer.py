@@ -47,7 +47,12 @@ def compute_shap_values(
 
         # Use TreeExplainer for the Isolation Forest
         explainer = shap.TreeExplainer(isolation_forest_model)
+        # Tree SHAP explains expected path length: shorter paths are anomalous.
+        # Negate so positive contributions mean greater IF anomaly evidence.
+        from sklearn.ensemble import IsolationForest
         shap_values = explainer.shap_values(subset)
+        if isinstance(isolation_forest_model, IsolationForest):
+            shap_values = -shap_values
 
         # Map to feature names
         results = []

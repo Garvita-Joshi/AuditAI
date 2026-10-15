@@ -6,6 +6,8 @@ filtering/sorting/pagination, and receipt attachment.
 """
 import io
 import logging
+import re
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -13,10 +15,16 @@ from typing import Optional
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 
 from fuzzywuzzy import fuzz
 from backend.app.config import KNOWN_VENDORS
+from backend.app.auth.security import (
+    assert_can_view_claim, get_current_user, has_role, is_claim_participant,
+    review_block_reason, require_roles,
+)
 from backend.app.db import Base, engine, get_db
+from backend.app.models.auth import AuthUser, ClaimContributor
 from backend.app.models.expense import (
     AuditReport,
     ExpenseClaim,
@@ -45,10 +53,24 @@ def get_closest_vendor(vendor_name: str):
     if not vendor_name:
         return None, 0.0
     vendor_lower = vendor_name.lower().strip()
+    vendor_tokens = re.findall(r"[a-z0-9]+", vendor_lower)
     max_ratio = 0.0
     closest = None
     for known in KNOWN_VENDORS:
-        ratio = fuzz.ratio(vendor_lower, known.lower().strip()) / 100.0
+        known_lower = known.lower().strip()
+        if vendor_lower == known_lower:
+            return None, 0.0
+        known_tokens = re.findall(r"[a-z0-9]+", known_lower)
+        full_ratio = fuzz.ratio(vendor_lower, known_lower) / 100.0
+        first_token_ratio = (fuzz.ratio(vendor_tokens[0], known_tokens[0]) / 100.0
+                             if vendor_tokens and known_tokens else 0.0)
+        brand_typo = (vendor_tokens and known_tokens and vendor_tokens[0] != known_tokens[0]
+                      and min(len(vendor_tokens[0]), len(known_tokens[0])) >= 4
+                      and first_token_ratio >= 0.80)
+        # Shared generic words such as "Airlines" must not imply a typo.
+        if full_ratio < 0.85 and not brand_typo:
+            continue
+        ratio = max(full_ratio, first_token_ratio if brand_typo else 0.0)
         if ratio > max_ratio:
             max_ratio = ratio
             closest = known
@@ -56,7 +78,7 @@ def get_closest_vendor(vendor_name: str):
 
 
 @router.post("/init-db", status_code=status.HTTP_200_OK)
-def init_db(db: Session = Depends(get_db)):
+def init_db(db: Session = Depends(get_db), user: AuthUser = Depends(require_roles("admin"))):
     """Create all database tables and seed default entity."""
     try:
         Base.metadata.create_all(bind=engine)
@@ -77,6 +99,7 @@ def init_db(db: Session = Depends(get_db)):
 async def upload_claims(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    user: AuthUser = Depends(get_current_user),
 ):
     """
     Upload expense claims from a CSV or JSON file.
@@ -102,11 +125,22 @@ async def upload_claims(
 
     # Standardize columns
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    aliases = {'transaction_id': 'claim_id', 'amount': 'claimed_amount',
+               'transaction_date': 'claimed_date', 'general_ledger_account': 'category',
+               'is_anomaly': 'is_fraud', 'risk_category': 'fraud_type',
+               'ocr_extracted_amount': 'ocr_amount', 'extracted_vendor': 'ocr_vendor',
+               'extracted_date': 'ocr_date', 'extraction_confidence': 'ocr_confidence'}
+    df = df.rename(columns={a:b for a,b in aliases.items() if a in df and b not in df})
 
     required = ["claim_id", "employee_id", "employee_name", "claimed_amount", "vendor_name", "claimed_date"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise HTTPException(422, f"Missing columns: {missing}")
+
+    if not has_role(user, "maker", "checker", "admin"):
+        employee_ids = {str(value).strip() for value in df["employee_id"]}
+        if employee_ids != {user.employee_id}:
+            raise HTTPException(403, "Employees may submit claims only for their own employee ID.")
 
     loaded = 0
     errors = []
@@ -130,9 +164,13 @@ async def upload_claims(
             # Parse amount
             amt_raw = str(row["claimed_amount"]).replace(",", "").replace("₹", "").replace("$", "").strip()
             amount = Decimal(amt_raw)
+            if not amount.is_finite():
+                raise ValueError('Amount must be finite.')
 
             # Parse date
             date_val = pd.to_datetime(row["claimed_date"]).date()
+            if pd.isna(date_val):
+                raise ValueError('Claim date is missing or invalid.')
 
             # Parse fraud labels
             is_fraud = False
@@ -156,6 +194,24 @@ async def upload_claims(
                 fraud_type=fraud_type,
                 entity_id=entity_id,
             )
+            if pd.notna(row.get('submitted_at')):
+                claim.submitted_at = pd.to_datetime(row['submitted_at'], utc=True).tz_localize(None).to_pydatetime()
+            # Preserve existing extracted receipt amounts from tabular imports.
+            # Unknown OCR quality remains unknown, never fabricated as 100%.
+            if pd.notna(row.get('ocr_amount')):
+                ocr_amount = Decimal(str(row['ocr_amount']))
+                if not ocr_amount.is_finite():
+                    raise ValueError('OCR amount must be finite.')
+                confidence = float(row['ocr_confidence']) if pd.notna(row.get('ocr_confidence')) else None
+                if confidence is not None and not 0 <= confidence <= 1:
+                    raise ValueError('OCR confidence must be between zero and one.')
+                receipt = Receipt(receipt_id=f'CSV-{uuid.uuid4().hex[:16]}', file_path='',
+                                  file_type='imported', upload_status='processed')
+                receipt.ocr_result = OcrResult(extracted_amount=ocr_amount,
+                    extracted_vendor=(str(row['ocr_vendor']).strip() if pd.notna(row.get('ocr_vendor')) else None),
+                    extracted_date=(str(row['ocr_date']).strip() if pd.notna(row.get('ocr_date')) else None),
+                    extraction_method='imported', extraction_confidence=confidence)
+                claim.receipt = receipt
             claims_to_add.append(claim)
             existing_claim_ids.add(claim_id) # prevent duplicate inserts from the same file
             loaded += 1
@@ -164,6 +220,11 @@ async def upload_claims(
 
     if claims_to_add:
         db.add_all(claims_to_add)
+        db.flush()
+        db.add_all([
+            ClaimContributor(claim_id=claim.claim_id, user_id=user.id, source="claim_upload")
+            for claim in claims_to_add
+        ])
         db.commit()
 
     return UploadResponse(
@@ -180,22 +241,54 @@ def list_claims(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status_filter: Optional[str] = Query(None, alias="status"),
-    sort_by: str = Query("submitted_at", regex="^(claim_id|employee_name|vendor_name|claimed_amount|claimed_date|submitted_at|status)$"),
+    score_band: Optional[str] = Query(None, regex="^(low|review|high)$"),
+    search: Optional[str] = Query(None),
+    sort_by: str = Query("submitted_at", regex="^(claim_id|employee_name|vendor_name|claimed_amount|claimed_date|submitted_at|status|fraud_score)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: Session = Depends(get_db),
+    user: AuthUser = Depends(get_current_user),
 ):
     """List claims with filtering, sorting, and pagination."""
     query = db.query(ExpenseClaim)
+    if not has_role(user, "maker", "checker", "admin"):
+        contributed = db.query(ClaimContributor.claim_id).filter(ClaimContributor.user_id == user.id)
+        query = query.filter(or_(ExpenseClaim.employee_id == user.employee_id,
+                                 ExpenseClaim.claim_id.in_(contributed)))
 
     if status_filter:
         query = query.filter(ExpenseClaim.status == status_filter)
 
+    if score_band or sort_by == "fraud_score":
+        query = query.outerjoin(FraudPrediction, ExpenseClaim.claim_id == FraudPrediction.claim_id)
+    if score_band:
+        displayed_score = func.round(FraudPrediction.combined_fraud_score * 100, 0)
+        if score_band == "low":
+            query = query.filter(displayed_score < 50)
+        elif score_band == "review":
+            query = query.filter(displayed_score >= 50, displayed_score < 65)
+        else:
+            query = query.filter(displayed_score >= 65)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                ExpenseClaim.claim_id.ilike(search_term),
+                ExpenseClaim.employee_name.ilike(search_term),
+                ExpenseClaim.vendor_name.ilike(search_term)
+            )
+        )
+
     # Sorting
-    sort_col = getattr(ExpenseClaim, sort_by, ExpenseClaim.submitted_at)
-    if sort_order == "desc":
-        query = query.order_by(sort_col.desc())
+    if sort_by == "fraud_score":
+        # Keep unscored claims last in either direction and sort before pagination.
+        score = FraudPrediction.combined_fraud_score
+        query = query.order_by(score.is_(None), score.desc() if sort_order == "desc" else score.asc(),
+                               ExpenseClaim.claim_id.asc())
     else:
-        query = query.order_by(sort_col.asc())
+        sort_col = getattr(ExpenseClaim, sort_by, ExpenseClaim.submitted_at)
+        query = query.order_by(sort_col.desc() if sort_order == "desc" else sort_col.asc(),
+                               ExpenseClaim.claim_id.asc())
 
     total = query.count()
     claims = query.offset((page - 1) * page_size).limit(page_size).all()
@@ -241,11 +334,13 @@ def list_claims(
 
 
 @router.get("/{claim_id}")
-def get_claim_detail(claim_id: str, db: Session = Depends(get_db)):
+def get_claim_detail(claim_id: str, db: Session = Depends(get_db),
+                     user: AuthUser = Depends(get_current_user)):
     """Get full claim detail with OCR, prediction, SHAP, and audit report."""
     claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
     if not claim:
         raise HTTPException(404, f"Claim {claim_id} not found.")
+    assert_can_view_claim(db, user, claim)
 
     # Build response
     closest_match, match_ratio = get_closest_vendor(claim.vendor_name)
@@ -320,21 +415,39 @@ def get_claim_detail(claim_id: str, db: Session = Depends(get_db)):
             generated_at=r.generated_at,
         )
 
+    maker = None
+    if claim.case and claim.case.maker_id and str(claim.case.maker_id).isdigit():
+        maker = db.query(AuthUser).filter(AuthUser.id == int(claim.case.maker_id)).first()
+
     return {
         "claim": claim_resp,
         "ocr_result": ocr_resp,
         "prediction": pred_resp,
         "audit_report": report_resp,
+        "case_review": {
+            "maker_recommendation": (
+                "approve" if claim.case.status == "maker_recommended_approve" else
+                "reject" if claim.case.status == "maker_recommended_reject" else None
+            ) if claim.case else None,
+            "maker_notes": claim.case.maker_notes if claim.case else None,
+            "maker_name": maker.display_name if maker else None,
+        },
+        "review_permissions": {
+            "is_own_claim": is_claim_participant(db, user, claim),
+            "maker_block_reason": review_block_reason(db, user, claim, "maker"),
+            "checker_block_reason": review_block_reason(db, user, claim, "checker"),
+        },
     }
 
 
 @router.patch("/{claim_id}/status")
 def update_claim_status(
     claim_id: str,
-    new_status: str = Query(..., regex="^(pending|processing|scored|flagged|approved|rejected)$"),
+    new_status: str = Query(..., regex="^(pending|processing|scored|flagged)$"),
     db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_roles("admin")),
 ):
-    """Update a claim's status (approve, reject, flag)."""
+    """Admin maintenance for non-final statuses; approval requires checker sign-off."""
     claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
     if not claim:
         raise HTTPException(404, f"Claim {claim_id} not found.")

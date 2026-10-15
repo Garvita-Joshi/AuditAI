@@ -14,10 +14,24 @@ AuditAI is a full-stack financial anomaly detection platform built for audit fir
 | **Frontend** | React + Vite |
 | **Database** | PostgreSQL |
 | **ML** | PyTorch (Autoencoder), Scikit-learn (Isolation Forest), SHAP |
-| **OCR** | PaddleOCR (primary), Pytesseract (fallback) |
+| **OCR** | RapidOCR CPU (primary), optional PaddleOCR/Tesseract fallbacks |
 | **LLM** | Google Gemini API |
 
 ---
+
+## Model update
+
+The active detector uses prior-only behavioral features, independent Autoencoder and Isolation Forest models, frozen score calibration, and local receipt OCR. See [model v2 setup and validation](docs/model-v2.md).
+
+## Company login and review roles
+
+Employees, makers, and checkers sign in with a provisioned company email and password. The demo domain is `auditai.example`; set `COMPANY_EMAIL_DOMAINS=yourcompany.com` in `.env` before provisioning real accounts. There is no public sign-up or role selector at login. Create accounts from a trusted local terminal with `python scripts/provision_user.py --email name@yourcompany.com --employee-id EMP014 --roles employee,maker`. The script prompts for a password without echoing it.
+
+For a deployed frontend, set `FRONTEND_ORIGINS` to its exact URL (or a comma-separated list of approved URLs) so browser requests can reach the API.
+
+For local testing, run `python scripts/seed_demo_accounts.py`. It writes randomly generated passwords to the ignored file `scripts/artifacts/demo-credentials.txt`. The maker demo account uses employee ID `EMP014`, so its own claims are visible but cannot be reviewed. The checker demo account uses `EMP033`; the dual-role account demonstrates that one person cannot make and check the same case.
+
+The API enforces review order and separation of duties. A maker may recommend; a different checker may sign off only after that recommendation. A claim owner or any account that uploaded the claim or its receipt may view the claim but cannot review it. Employee-only accounts see their own claims. Login sessions expire after 12 hours and can be revoked by signing out. For production, connect account provisioning and email ownership to your company identity provider.
 
 ## 🧠 What It Detects (v1: Employee Expense Fraud)
 
@@ -36,18 +50,20 @@ AuditAI is a full-stack financial anomaly detection platform built for audit fir
 ## 📐 ML Architecture
 
 ```
-Raw Expense Claims
+Transactions + Receipt OCR
       ↓
-Feature Engineering (15 features per claim)
+Prior-only behavioral features (IDs used for lookups only)
       ↓
-Stage 1: PyTorch Autoencoder → Reconstruction Error
+Training-fitted preprocessing
       ↓
-Stage 2: Isolation Forest (on reconstructed features) → Anomaly Score
+Autoencoder reconstruction error + independent Isolation Forest score
       ↓
-Combined Score = 0.4 × Recon Error + 0.6 × IF Score
+Frozen reference calibration and review threshold
       ↓
-SHAP Explainability → Gemini Audit Report Generation
+Ranked alerts + Isolation Forest SHAP evidence
 ```
+
+Training separates normal training, early stopping, threshold calibration, and future testing chronologically. Scores are anomaly indices, not fraud probabilities. Read [the model notes](docs/model-v2.md) for label requirements and benchmark limitations.
 
 ---
 
@@ -103,6 +119,8 @@ python -m uvicorn backend.app.main:app --reload --port 8000
 
 ### 5. Seed the database + train models
 ```bash
+python scripts/seed_demo_accounts.py
+# Set AUDITAI_ADMIN_EMAIL and AUDITAI_ADMIN_PASSWORD to the provisioned admin account.
 python scripts/seed_and_train.py
 ```
 
@@ -111,7 +129,7 @@ python scripts/seed_and_train.py
 cd frontend && npm install && npm run dev
 ```
 
-Open **http://localhost:5173** to see the dashboard.
+Open **http://localhost:5173** to sign in. Employees land on their claims; reviewers can access the dashboard.
 
 ---
 

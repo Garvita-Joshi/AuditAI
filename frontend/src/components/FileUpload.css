@@ -8,7 +8,8 @@
   background: rgba(13, 19, 33, 0.4);
 }
 
-.dropzone:hover, .dropzone.active {
+.dropzone:hover,
+.dropzone.active {
   border-color: var(--accent-primary);
   background: rgba(59, 130, 246, 0.05);
 }
@@ -18,7 +19,8 @@
   transition: color 0.2s ease;
 }
 
-.dropzone:hover .dropzone-icon, .dropzone.active .dropzone-icon {
+.dropzone:hover .dropzone-icon,
+.dropzone.active .dropzone-icon {
   color: var(--accent-primary);
 }
 
@@ -33,10 +35,21 @@
   margin-bottom: 8px;
 }
 
-.text-accent-primary { color: var(--accent-primary); }
-.text-danger { color: var(--status-danger); }
-.hover\:text-danger:hover { color: var(--status-danger); }
-.text-status-success { color: var(--status-success); }
+.text-accent-primary {
+  color: var(--accent-primary);
+}
+
+.text-danger {
+  color: var(--status-danger);
+}
+
+.hover\:text-danger:hover {
+  color: var(--status-danger);
+}
+
+.text-status-success {
+  color: var(--status-success);
+}
 
 /* Spinner */
 .spinner {
@@ -49,5 +62,7 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }

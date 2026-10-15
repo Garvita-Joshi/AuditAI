@@ -8,6 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.db import get_db
+from backend.app.auth.security import get_current_user, is_claim_participant, require_roles
+from backend.app.models.auth import AuthUser
+from backend.app.config import GEMINI_API_KEY, GEMINI_MODEL
 from backend.app.llm.gemini import generate_audit_report
 from backend.app.models.expense import AuditReport, ExpenseClaim
 
@@ -16,11 +19,14 @@ router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
 
 
 @router.post("/generate/{claim_id}", status_code=status.HTTP_201_CREATED)
-def generate_report_for_claim(claim_id: str, db: Session = Depends(get_db)):
+def generate_report_for_claim(claim_id: str, db: Session = Depends(get_db),
+                              user: AuthUser = Depends(get_current_user)):
     """Generate an audit report for a specific flagged claim."""
     claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
     if not claim:
         raise HTTPException(404, f"Claim {claim_id} not found.")
+    if is_claim_participant(db, user, claim):
+        raise HTTPException(403, "You own or contributed to this claim and cannot generate its audit report.")
 
     if claim.status not in ("flagged", "rejected"):
         raise HTTPException(400, "Can only generate reports for flagged or rejected claims.")
@@ -37,6 +43,7 @@ def generate_report_for_claim(claim_id: str, db: Session = Depends(get_db)):
         "claimed_date": str(claim.claimed_date),
         "category": claim.category,
         "combined_fraud_score": claim.prediction.combined_fraud_score,
+        "holiday_policy_flag": bool((claim.prediction.feature_values or {}).get("_holiday_policy_flag", 0)),
     }
 
     ocr_evidence = {}
@@ -60,11 +67,12 @@ def generate_report_for_claim(claim_id: str, db: Session = Depends(get_db)):
     # Save to DB
     if claim.audit_report:
         claim.audit_report.report_text = report_text
+        claim.audit_report.generated_by = GEMINI_MODEL if GEMINI_API_KEY else "template"
     else:
         report = AuditReport(
             claim_id=claim.claim_id,
             report_text=report_text,
-            generated_by="gemini-2.0-flash",
+            generated_by=GEMINI_MODEL if GEMINI_API_KEY else "template",
         )
         db.add(report)
 
@@ -74,7 +82,8 @@ def generate_report_for_claim(claim_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/generate-all", status_code=status.HTTP_200_OK)
-def generate_reports_for_all_flagged(db: Session = Depends(get_db)):
+def generate_reports_for_all_flagged(db: Session = Depends(get_db),
+                                     user: AuthUser = Depends(require_roles("admin"))):
     """Generate audit reports for all flagged claims that don't have one."""
     flagged_claims = (
         db.query(ExpenseClaim)
@@ -100,6 +109,7 @@ def generate_reports_for_all_flagged(db: Session = Depends(get_db)):
             "claimed_date": str(claim.claimed_date),
             "category": claim.category,
             "combined_fraud_score": claim.prediction.combined_fraud_score,
+            "holiday_policy_flag": bool((claim.prediction.feature_values or {}).get("_holiday_policy_flag", 0)),
         }
 
         ocr_evidence = {}
@@ -118,7 +128,7 @@ def generate_reports_for_all_flagged(db: Session = Depends(get_db)):
             report = AuditReport(
                 claim_id=claim.claim_id,
                 report_text=report_text,
-                generated_by="gemini",
+                generated_by=GEMINI_MODEL if GEMINI_API_KEY else "template",
             )
             db.add(report)
             generated_count += 1

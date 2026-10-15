@@ -54,7 +54,7 @@ export default function FileUpload({ onUpload, accept, label, multiple = false, 
     <div className="file-upload-wrapper">
       {uploadState === 'idle' || uploadState === 'error' ? (
         <>
-          <div 
+          <div
             className={`dropzone ${dragActive ? "active" : ""}`}
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
@@ -62,7 +62,7 @@ export default function FileUpload({ onUpload, accept, label, multiple = false, 
             onDrop={handleDrop}
             onClick={() => fileInputRef.current.click()}
           >
-            <input 
+            <input
               ref={fileInputRef}
               type="file"
               accept={accept}
@@ -70,7 +70,7 @@ export default function FileUpload({ onUpload, accept, label, multiple = false, 
               onChange={handleChange}
               style={{ display: "none" }}
             />
-            
+
             <UploadCloud size={48} className="dropzone-icon mb-4" />
             <p className="text-lg font-medium mb-1">{label}</p>
             <p className="text-sm text-secondary">Drag and drop or click to select</p>
@@ -89,8 +89,8 @@ export default function FileUpload({ onUpload, accept, label, multiple = false, 
                   </button>
                 </div>
               ))}
-              
-              <button 
+
+              <button
                 className="btn btn-primary mt-4 w-full"
                 onClick={handleUploadClick}
               >

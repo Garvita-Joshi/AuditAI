@@ -7,6 +7,27 @@ const api = axios.create({
   },
 });
 
+const TOKEN_KEY = 'auditai_session_token';
+api.interceptors.request.use((request) => {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  if (token) request.headers.Authorization = `Bearer ${token}`;
+  return request;
+});
+api.interceptors.response.use((response) => response, (error) => {
+  if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    window.dispatchEvent(new Event('auditai:unauthorized'));
+  }
+  return Promise.reject(error);
+});
+
+export const authApi = {
+  tokenKey: TOKEN_KEY,
+  login: (email, password) => api.post('/auth/login', { email, password }),
+  me: () => api.get('/auth/me'),
+  logout: () => api.post('/auth/logout'),
+};
+
 export const claimsApi = {
   list: (params) => api.get('/claims', { params }),
   getDetail: (claimId) => api.get(`/claims/${claimId}`),
@@ -16,6 +37,10 @@ export const claimsApi = {
   uploadReceipt: (claimId, formData) => api.post(`/receipts/upload?claim_id=${claimId}`, formData, { 
     headers: { 'Content-Type': 'multipart/form-data' } 
   }),
+};
+
+export const receiptsApi = {
+  get: (receiptId) => api.get(`/receipts/${receiptId}`),
 };
 
 export const fraudApi = {
@@ -31,10 +56,10 @@ export const reportsApi = {
 
 export const casesApi = {
   list: (params) => api.get('/cases', { params }),
-  makerRecommend: (claimId, action, notes, makerId) => 
-    api.post(`/cases/${claimId}/maker-recommend`, null, { params: { action, notes, maker_id: makerId } }),
-  checkerSignoff: (claimId, action, notes, checkerId) => 
-    api.post(`/cases/${claimId}/checker-signoff`, null, { params: { action, notes, checker_id: checkerId } }),
+  makerRecommend: (claimId, action, notes) =>
+    api.post(`/cases/${claimId}/maker-recommend`, null, { params: { action, notes } }),
+  checkerSignoff: (claimId, action, notes) =>
+    api.post(`/cases/${claimId}/checker-signoff`, null, { params: { action, notes } }),
   getTrail: (claimId) => api.get(`/cases/${claimId}/trail`),
 };
 

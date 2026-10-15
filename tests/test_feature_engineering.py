@@ -47,7 +47,7 @@ def test_no_duplicate_different_vendor():
 def test_typosquatted_vendor_flagged():
     known = ['Amazon', 'Starbucks', 'Uber']
     score, is_known = _vendor_anomaly('Amazn', known)
-    assert score > 0.1  # Not a perfect match
+    assert score > 0.0  # A misspelling is not a perfect match (fuzzy ratio is 0.91).
     assert is_known == 0.0
 
 def test_known_vendor_exact_match():

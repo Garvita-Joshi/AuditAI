@@ -25,11 +25,19 @@ def _load_image(image_path: str) -> Optional[np.ndarray]:
     suffix = path.suffix.lower()
 
     if suffix == ".pdf":
-        # Convert first page of PDF to image via Pillow
+        # PDFium renders PDFs without requiring a separate system renderer.
         try:
-            pil_img = Image.open(path)
-            pil_img = pil_img.convert("RGB")
-            return np.array(pil_img)
+            import pypdfium2 as pdfium
+            with pdfium.PdfDocument(str(path)) as doc:
+                if len(doc) != 1:
+                    raise ValueError('Upload one receipt page per file.')
+                page = doc[0]
+                bitmap = page.render(scale=2)
+                try:
+                    return cv2.cvtColor(np.array(bitmap.to_pil().convert('RGB')), cv2.COLOR_RGB2BGR)
+                finally:
+                    bitmap.close()
+                    page.close()
         except Exception as e:
             logger.warning("PDF conversion failed for %s: %s", image_path, e)
             return None
@@ -79,7 +87,7 @@ def _deskew(image: np.ndarray) -> np.ndarray:
     try:
         # Find contours on inverted binary image
         inverted = cv2.bitwise_not(image)
-        coords = np.column_stack(np.where(inverted > 0))
+        coords = np.column_stack(np.where(inverted > 0))[:, ::-1].astype(np.float32)
 
         if len(coords) < 10:
             return image
@@ -88,10 +96,15 @@ def _deskew(image: np.ndarray) -> np.ndarray:
         angle = cv2.minAreaRect(coords)[-1]
 
         # minAreaRect returns angles in [-90, 0). Normalize:
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
+        if angle > 45:
+            angle -= 90
+        elif angle < -45:
+            angle += 90
+
+        # Receipt borders/layout can produce a misleading rectangle. Avoid
+        # rotating an upright document by a right angle.
+        if abs(angle) > 15:
+            return image
 
         if abs(angle) < 0.5:
             return image  # Skew is negligible

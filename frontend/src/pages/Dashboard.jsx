@@ -6,11 +6,12 @@ import { fraudApi } from '../api/client';
 import StatCard from '../components/StatCard';
 import ScoreBadge from '../components/ScoreBadge';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import ExplainabilityPanel from '../components/ExplainabilityPanel';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  
+
   // Table Filters
   const [statusFilter, setStatusFilter] = useState('all');
   const [scoreFilter, setScoreFilter] = useState('all');
@@ -22,13 +23,13 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         const response = await fraudApi.summary();
-        
+
         // Transform histogram object to array for Recharts
         const distData = Object.entries(response.data.score_distribution || {}).map(([range, count]) => ({
           range,
           count
         }));
-        
+
         setData({ ...response.data, scoreDistData: distData });
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);
@@ -36,7 +37,7 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
-    
+
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
@@ -60,16 +61,16 @@ export default function Dashboard() {
   // Filtered flagged claims
   const filteredClaims = data.recent_flagged.filter(claim => {
     // Search Query Filter
-    const matchesSearch = 
+    const matchesSearch =
       claim.claim_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       claim.employee_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       claim.vendor_name.toLowerCase().includes(searchQuery.toLowerCase());
-      
+
     // Case Status Filter
-    const matchesStatus = 
-      statusFilter === 'all' || 
+    const matchesStatus =
+      statusFilter === 'all' ||
       claim.case_status === statusFilter;
-      
+
     // Score Filter
     const scoreVal = claim.fraud_score;
     let matchesScore = true;
@@ -92,7 +93,7 @@ export default function Dashboard() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Audit Dashboard</h1>
       </div>
-      
+
       {/* Case Cycle KPI Row */}
       <div className="grid-cols-3 mb-6">
         <div className="glass-card flex items-center gap-4" style={{ padding: '16px 24px' }}>
@@ -102,13 +103,13 @@ export default function Dashboard() {
           <div>
             <div className="text-xs text-muted uppercase font-semibold">Avg Time to Disposition</div>
             <div className="text-lg font-bold">
-              {data.kpis?.avg_time_to_disposition_seconds > 0 
-                ? `${(data.kpis.avg_time_to_disposition_seconds / 60).toFixed(1)} mins` 
+              {data.kpis?.avg_time_to_disposition_seconds > 0
+                ? `${(data.kpis.avg_time_to_disposition_seconds / 60).toFixed(1)} mins`
                 : 'N/A'}
             </div>
           </div>
         </div>
-        
+
         <div className="glass-card flex items-center gap-4" style={{ padding: '16px 24px' }}>
           <div style={{ color: 'var(--status-warning)', background: 'rgba(245, 158, 11, 0.1)', padding: '10px', borderRadius: '10px' }}>
             <ShieldAlert size={20} />
@@ -132,32 +133,38 @@ export default function Dashboard() {
 
       {/* Main Core Stat Cards */}
       <div className="grid-cols-4 mb-6">
-        <StatCard 
-          title="Total Claims" 
-          value={data.total_claims.toLocaleString()} 
-          icon={FileText} 
-          color="blue" 
+        <StatCard
+          title="Total Claims"
+          value={data.total_claims.toLocaleString()}
+          icon={FileText}
+          color="blue"
         />
-        <StatCard 
-          title="Flagged Anomalies" 
-          value={data.flagged_count.toLocaleString()} 
-          icon={AlertTriangle} 
-          color="red" 
+        <StatCard
+          title="Flagged Anomalies"
+          value={data.flagged_count.toLocaleString()}
+          icon={AlertTriangle}
+          color="red"
         />
-        <StatCard 
-          title="Fraud Rate" 
-          value={`${data.fraud_rate}%`} 
-          icon={Percent} 
-          color={data.fraud_rate > 10 ? 'red' : 'amber'} 
+        <StatCard
+          title="Flagged Claim Rate"
+          value={`${data.flagged_rate ?? data.fraud_rate}%`}
+          icon={Percent}
+          color={(data.flagged_rate ?? data.fraud_rate) > 10 ? 'red' : 'amber'}
         />
-        <StatCard 
-          title="Average Score" 
-          value={(data.average_score * 100).toFixed(1) + '%'} 
-          icon={Activity} 
-          color="amber" 
+        <StatCard
+          title="Average Anomaly Index"
+          value={(data.average_score * 100).toFixed(1) + '/100'}
+          icon={Activity}
+          color="amber"
         />
       </div>
-      
+
+      <ExplainabilityPanel
+        claims={data.recent_flagged}
+        reasonBreakdown={data.explainability?.reason_breakdown || []}
+        threshold={(data.explainability?.display_threshold ?? 0.5) * 100}
+      />
+
       <div className="grid-cols-2 mb-6">
         {/* Flagged Counts Monthly Bar Chart */}
         <div className="glass-card">
@@ -174,7 +181,7 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-        
+
         {/* Score Distribution */}
         <div className="glass-card">
           <h3 className="text-lg font-semibold mb-6">Anomaly Score Distribution</h3>
@@ -184,32 +191,32 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="range" />
                 <YAxis />
-                <Tooltip cursor={{fill: 'rgba(255, 255, 255, 0.05)'}} />
+                <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} />
                 <Bar dataKey="count" name="Claims" fill="var(--accent-primary)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
-      
+
       {/* Flagged Claims list */}
       <div className="glass-card">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-semibold">High-Risk Claims Queue</h3>
-          
+
           {/* Dashboard-level filters */}
-          <div className="flex gap-3 items-center">
-            <input 
-              type="text" 
-              className="input py-1 text-sm" 
-              placeholder="Search..." 
+          <div className="dashboard-filters flex gap-3 items-center">
+            <input
+              type="text"
+              className="input py-1 text-sm"
+              placeholder="Search..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               style={{ width: 180 }}
             />
-            
-            <select 
-              className="input py-1 text-sm" 
+
+            <select
+              className="input py-1 text-sm"
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
               style={{ width: 140 }}
@@ -222,8 +229,8 @@ export default function Dashboard() {
               <option value="closed_rejected">Closed Rejected</option>
             </select>
 
-            <select 
-              className="input py-1 text-sm" 
+            <select
+              className="input py-1 text-sm"
               value={scoreFilter}
               onChange={e => setScoreFilter(e.target.value)}
               style={{ width: 140 }}
@@ -253,8 +260,8 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {filteredClaims.map(claim => (
-                  <tr 
-                    key={claim.id} 
+                  <tr
+                    key={claim.id}
                     onClick={() => navigate(`/claims/${claim.claim_id}`)}
                     style={{ cursor: 'pointer' }}
                   >
@@ -264,9 +271,9 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2">
                         <span>{claim.vendor_name}</span>
                         {claim.closest_vendor_match && (
-                          <span 
+                          <span
                             className="badge badge-amber text-xs flex items-center gap-1 cursor-help"
-                            title={`⚠ ${Math.round(claim.vendor_similarity_score * 100)}% match to '${claim.closest_vendor_match}' — possible typosquat`}
+                            title={`Possible vendor name typo: ${Math.round(claim.vendor_similarity_score * 100)}% similarity to '${claim.closest_vendor_match}'`}
                             onClick={e => e.stopPropagation()}
                           >
                             ⚠ Typo
@@ -274,13 +281,12 @@ export default function Dashboard() {
                         )}
                       </div>
                     </td>
-                    <td>₹{claim.claimed_amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                    <td>₹{claim.claimed_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     <td>
-                      <span className={`badge ${
-                        claim.case_status?.startsWith('closed_approved') ? 'badge-green' :
-                        claim.case_status?.startsWith('closed_rejected') ? 'badge-red' :
-                        claim.case_status?.startsWith('maker') ? 'badge-blue' : 'badge-amber'
-                      }`}>
+                      <span className={`badge ${claim.case_status?.startsWith('closed_approved') ? 'badge-green' :
+                          claim.case_status?.startsWith('closed_rejected') ? 'badge-red' :
+                            claim.case_status?.startsWith('maker') ? 'badge-blue' : 'badge-amber'
+                        }`}>
                         {claim.case_status?.replace(/_/g, ' ')}
                       </span>
                     </td>

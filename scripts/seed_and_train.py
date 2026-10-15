@@ -20,6 +20,17 @@ API_URL = "http://127.0.0.1:8000/api/v1"
 
 def main():
     print("=== AuditAI: Seed & Train Pipeline ===")
+    admin_email = os.getenv("AUDITAI_ADMIN_EMAIL")
+    admin_password = os.getenv("AUDITAI_ADMIN_PASSWORD")
+    if not admin_email or not admin_password:
+        print("Set AUDITAI_ADMIN_EMAIL and AUDITAI_ADMIN_PASSWORD for a provisioned admin account.")
+        return
+    session = requests.Session()
+    login = session.post(f"{API_URL}/auth/login", json={"email": admin_email, "password": admin_password})
+    if login.status_code != 200:
+        print("Admin login failed. Check the company domain and credentials.")
+        return
+    session.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
 
     # Step 1: Generate synthetic data
     print("\n[1/6] Generating synthetic expense claims...")
@@ -28,7 +39,7 @@ def main():
     # Step 2: Initialize database
     print("\n[2/6] Initializing database...")
     try:
-        r = requests.post(f"{API_URL}/claims/init-db")
+        r = session.post(f"{API_URL}/claims/init-db")
         r.raise_for_status()
         print(f"  DB init: {r.json().get('message')}")
     except requests.exceptions.RequestException as e:
@@ -39,7 +50,7 @@ def main():
     # Step 3: Upload claims
     print("\n[3/6] Uploading expense claims...")
     with open("data/expense_claims.csv", "rb") as f:
-        r = requests.post(f"{API_URL}/claims/upload", files={"file": ("expense_claims.csv", f, "text/csv")})
+        r = session.post(f"{API_URL}/claims/upload", files={"file": ("expense_claims.csv", f, "text/csv")})
     
     if r.status_code in (200, 201):
         print(f"  Upload result: {r.json().get('message')}")
@@ -49,7 +60,9 @@ def main():
 
     # Step 4: Train models
     print("\n[4/6] Training ML pipeline (Autoencoder + Isolation Forest)...")
-    r = requests.post(f"{API_URL}/fraud/train")
+    # This script generated the labels above; live unreviewed claims must not
+    # opt into this synthetic-benchmark mode.
+    r = session.post(f"{API_URL}/fraud/train", params={"trust_synthetic_labels": "true"})
     if r.status_code == 200:
         print(f"  Training result: {r.json().get('message')}")
     else:
@@ -58,7 +71,7 @@ def main():
 
     # Step 5: Score all claims
     print("\n[5/6] Scoring all claims...")
-    r = requests.post(f"{API_URL}/fraud/score")
+    r = session.post(f"{API_URL}/fraud/score")
     if r.status_code == 200:
         data = r.json()
         print(f"  Scored {data.get('scored_count')} claims. {data.get('flagged_count')} flagged as anomalies.")
@@ -67,7 +80,7 @@ def main():
 
     # Step 6: Generate audit reports for flagged claims
     print("\n[6/6] Generating audit reports for flagged claims...")
-    r = requests.post(f"{API_URL}/reports/generate-all")
+    r = session.post(f"{API_URL}/reports/generate-all")
     if r.status_code == 200:
         print(f"  Generated {r.json().get('generated_count')} reports.")
     else:
