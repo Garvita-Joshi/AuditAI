@@ -10,12 +10,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from backend.app.config import RECEIPTS_DIR
+from backend.app.config import RECEIPTS_DIR, MAX_UPLOAD_SIZE_MB
+from backend.app.auth.security import assert_can_view_claim, get_current_user
 from backend.app.db import get_db
+from backend.app.models.auth import AuthUser, ClaimContributor
 from backend.app.models.expense import ExpenseClaim, OcrResult, Receipt
 from backend.app.ocr.engine import ocr_engine
 from backend.app.ocr.extractor import extract_fields
-from backend.app.ocr.preprocess import preprocess_image
+from backend.app.ocr.preprocess import preprocess_image, _load_image
 from backend.app.schemas.expense import OcrResultResponse, ReceiptResponse
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ async def upload_receipt(
     file: UploadFile = File(...),
     claim_id: str = None,
     db: Session = Depends(get_db),
+    user: AuthUser = Depends(get_current_user),
 ):
     """
     Upload a receipt image/PDF, run OCR + extraction, store results.
@@ -40,6 +43,13 @@ async def upload_receipt(
     if ext not in ("jpg", "jpeg", "png", "pdf", "tiff", "bmp"):
         raise HTTPException(400, f"Unsupported file type: {ext}")
 
+    claim = None
+    if claim_id:
+        claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
+        if claim is None:
+            raise HTTPException(404, f'Claim {claim_id} not found.')
+        assert_can_view_claim(db, user, claim)
+
     # Save file to disk
     receipt_id = f"RCP-{uuid.uuid4().hex[:8].upper()}"
     file_type = "pdf" if ext == "pdf" else "image"
@@ -48,9 +58,13 @@ async def upload_receipt(
     save_path = save_dir / f"{receipt_id}.{ext}"
 
     try:
-        contents = await file.read()
+        contents = await file.read(MAX_UPLOAD_SIZE_MB * 1024 * 1024 + 1)
+        if len(contents) > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+            raise HTTPException(413, 'Receipt exceeds the upload size limit.')
         with open(save_path, "wb") as f:
             f.write(contents)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"Failed to save file: {e}")
 
@@ -68,14 +82,20 @@ async def upload_receipt(
     # Run OCR pipeline
     try:
         # Preprocess
-        preprocessed = preprocess_image(str(save_path))
+        # Neural OCR reads the original image best; aggressive binarization can
+        # erase decimal points. Use preprocessing only if original OCR fails.
+        preprocessed = _load_image(str(save_path))
 
         if preprocessed is not None:
             # OCR
             raw_text, confidence, method = ocr_engine.extract_text(preprocessed)
+            if method == 'failed' or not raw_text.strip():
+                raw_text, confidence, method = ocr_engine.extract_text(preprocess_image(str(save_path)))
+            if method == 'failed' or not raw_text.strip():
+                raise ValueError('No receipt text extracted. Check OCR installation and image quality.')
 
             # Structured extraction
-            fields = extract_fields(raw_text, use_llm_fallback=True)
+            fields = extract_fields(raw_text, use_llm_fallback=False)
 
             # Store OCR result
             ocr_result = OcrResult(
@@ -87,7 +107,7 @@ async def upload_receipt(
                 extracted_tax_id=fields.get("tax_id"),
                 extracted_line_items=fields.get("line_items"),
                 extraction_method=method,
-                extraction_confidence=fields.get("confidence", confidence),
+                extraction_confidence=min(fields.get("confidence", 0), confidence),
             )
             db.add(ocr_result)
             receipt.upload_status = "processed"
@@ -99,15 +119,25 @@ async def upload_receipt(
         receipt.upload_status = "failed"
 
     # Link to claim if provided
-    if claim_id:
-        claim = db.query(ExpenseClaim).filter(ExpenseClaim.claim_id == claim_id).first()
-        if claim:
-            claim.receipt_id = receipt.id
+    if claim:
+        claim.receipt_id = receipt.id
+        existing_contributor = db.query(ClaimContributor.id).filter(
+            ClaimContributor.claim_id == claim.claim_id,
+            ClaimContributor.user_id == user.id,
+        ).first()
+        if not existing_contributor:
+            db.add(ClaimContributor(claim_id=claim.claim_id, user_id=user.id, source="receipt_upload"))
+        # Existing OCR-dependent predictions are stale. Closed decisions remain
+        # closed; open claims become eligible for the normal scoring endpoint.
+        if claim.status not in ('approved', 'rejected'):
+            if claim.prediction:
+                db.delete(claim.prediction)
+            claim.status = 'pending'
 
     db.commit()
 
     return {
-        "status": "success",
+        "status": "success" if receipt.upload_status == 'processed' else 'failed',
         "receipt_id": receipt_id,
         "upload_status": receipt.upload_status,
         "file_path": str(save_path),
@@ -115,11 +145,16 @@ async def upload_receipt(
 
 
 @router.get("/{receipt_id}", response_model=dict)
-def get_receipt(receipt_id: str, db: Session = Depends(get_db)):
+def get_receipt(receipt_id: str, db: Session = Depends(get_db),
+                user: AuthUser = Depends(get_current_user)):
     """Get receipt metadata and OCR results."""
     receipt = db.query(Receipt).filter(Receipt.receipt_id == receipt_id).first()
     if not receipt:
         raise HTTPException(404, f"Receipt {receipt_id} not found.")
+    if not receipt.claims:
+        raise HTTPException(403, "This receipt is not linked to a claim.")
+    for claim in receipt.claims:
+        assert_can_view_claim(db, user, claim)
 
     ocr_resp = None
     if receipt.ocr_result:
@@ -128,7 +163,7 @@ def get_receipt(receipt_id: str, db: Session = Depends(get_db)):
             "id": ocr.id,
             "raw_ocr_text": ocr.raw_ocr_text,
             "extracted_vendor": ocr.extracted_vendor,
-            "extracted_amount": float(ocr.extracted_amount) if ocr.extracted_amount else None,
+            "extracted_amount": float(ocr.extracted_amount) if ocr.extracted_amount is not None else None,
             "extracted_date": ocr.extracted_date,
             "extracted_tax_id": ocr.extracted_tax_id,
             "extracted_line_items": ocr.extracted_line_items,

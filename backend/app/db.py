@@ -1,7 +1,9 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5433/postgres")
 
 # Clean up accidental prefixes if the user pasted key name in value field

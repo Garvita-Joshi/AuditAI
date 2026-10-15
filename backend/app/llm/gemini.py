@@ -15,6 +15,57 @@ from backend.app.config import GEMINI_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
 
+_FEATURE_LABELS = {
+    "log_amount": "Claim amount scale",
+    "is_negative": "Negative amount",
+    "is_round": "Round amount",
+    "hour": "Claim hour",
+    "weekend_flag": "Weekend submission",
+    "is_after_hours": "Outside business hours",
+    "z_global": "Amount vs. all claims",
+    "z_vendor": "Amount vs. vendor history",
+    "z_employee": "Amount vs. employee history",
+    "z_category": "Amount vs. category history",
+    "log_vendor_prior_n": "Vendor history volume",
+    "log_employee_prior_n": "Employee history volume",
+    "vendor_is_new": "New vendor",
+    "employee_is_new": "New employee",
+    "pair_is_new": "New employee-vendor pair",
+    "vendor_missing": "Missing vendor identity",
+    "employee_missing": "Missing employee identity",
+    "log_vendor_freq_30d": "Vendor frequency in 30 days",
+    "log_employee_freq_7d": "Employee frequency in 7 days",
+    "log_days_since_vendor": "Days since vendor was seen",
+    "duplicate_prior": "Prior duplicate match",
+    "log_pair_amount_1d": "Same-pair amount in 1 day",
+    "log_pair_count_1d": "Same-pair count in 1 day",
+    "has_receipt": "Receipt present",
+    "ocr_amount_missing": "Receipt amount missing",
+    "ocr_confidence": "OCR confidence",
+    "ocr_confidence_missing": "OCR confidence missing",
+    "ocr_low_confidence": "Low OCR confidence",
+    "log_ocr_amount": "Receipt amount",
+    "ocr_mismatch_ratio": "Receipt amount mismatch",
+    "ocr_vendor_mismatch": "Receipt vendor mismatch",
+    "ocr_date_gap": "Receipt date gap",
+    "vendor_name_deviation": "Vendor name deviation",
+    "amount_mismatch_ratio": "Receipt amount mismatch",
+    "has_amount_mismatch": "Amount mismatch flag",
+    "duplicate_score": "Duplicate similarity",
+    "is_likely_duplicate": "Likely duplicate",
+    "vendor_anomaly_score": "Vendor anomaly",
+    "is_known_vendor": "Known vendor signal",
+    "amount_zscore": "Employee amount outlier",
+    "claim_frequency_7d": "7-day claim frequency",
+    "claim_frequency_30d": "30-day claim frequency",
+    "is_weekend": "Weekend submission",
+    "is_holiday": "Holiday submission",
+    "is_round_amount": "Round amount",
+    "amount_log": "Claim amount scale",
+    "split_transaction_flag": "Split transaction",
+    "category_risk_score": "Category risk",
+}
+
 _client = None
 
 
@@ -118,7 +169,9 @@ def generate_audit_report(
         "Generate a concise, professional audit note (2-3 sentences) for this "
         "flagged employee expense claim. Be specific about any discrepancies found.\n\n"
         f"Claim details: {json.dumps(claim_data, default=str)}\n"
-        f"Top fraud indicators (SHAP values): {json.dumps(dict(top_features))}\n"
+        f"Isolation Forest evidence (SHAP, not combined-score attribution): {json.dumps(dict(top_features))}\n"
+        f"Holiday policy flag: {bool(claim_data.get('holiday_policy_flag', False))}. A holiday policy flag is a separate deterministic audit rule and can flag a claim even if the statistical anomaly score is below threshold.\n"
+        "The score is an anomaly index, not a fraud probability. For SHAP values, positive means the feature increases anomaly evidence and negative means it reduces anomaly evidence. Do not describe negative values as reasons for flagging. OCR can be wrong; consider extraction confidence.\n"
         f"OCR evidence from receipt: {json.dumps(ocr_evidence, default=str)}\n\n"
         "Example format:\n"
         '"Claim #4521 flagged: extracted receipt amount ₹340 does not match '
@@ -150,7 +203,10 @@ def _generate_template_report(
     claimed_amt = claim_data.get("claimed_amount", 0)
     score = claim_data.get("combined_fraud_score", 0)
 
-    parts = [f"Claim {claim_id} flagged with fraud score {score:.2f}."]
+    parts = [f"Claim {claim_id} flagged with anomaly index {score * 100:.0f}/100. This index is not a fraud probability."]
+
+    if claim_data.get("holiday_policy_flag"):
+        parts.append("The holiday submission policy triggered a separate mandatory auditor review rule.")
 
     # Check for amount mismatch
     ocr_amt = ocr_evidence.get("extracted_amount")
@@ -173,11 +229,22 @@ def _generate_template_report(
             f"Receipt vendor '{ocr_vendor}' differs from claimed vendor '{vendor}'."
         )
 
-    # Add top contributing factors
+    # Explain direction explicitly. A negative SHAP value is evidence against
+    # anomaly, even when the overall claim remains above the flag threshold.
     if top_features:
-        factors = ", ".join(
-            f"{name} ({value:+.3f})" for name, value in top_features[:3]
-        )
-        parts.append(f"Key contributing factors: {factors}.")
+        positive = [
+            f"{_FEATURE_LABELS.get(name, name.replace('_', ' '))} ({value:+.3f})"
+            for name, value in top_features[:5] if value > 0
+        ]
+        negative = [
+            f"{_FEATURE_LABELS.get(name, name.replace('_', ' '))} ({value:+.3f})"
+            for name, value in top_features[:5] if value < 0
+        ]
+        if positive:
+            parts.append(f"Evidence increasing the anomaly score: {', '.join(positive[:3])}.")
+        if negative:
+            parts.append(f"Evidence reducing the anomaly score: {', '.join(negative[:3])}.")
+        if not positive:
+            parts.append("The claim remained above the review threshold because the combined model score was high enough despite these reducing signals.")
 
     return " ".join(parts)

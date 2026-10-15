@@ -7,9 +7,9 @@ export default function StatCard({ title, value, subtitle, icon: Icon, color = '
     amber: 'var(--status-warning)',
     red: 'var(--status-danger)',
   };
-  
+
   const activeColor = colorMap[color] || colorMap.blue;
-  
+
   return (
     <div className="glass-card stat-card" style={{ borderLeftColor: activeColor, borderLeftWidth: '4px' }}>
       <div className="flex justify-between items-center mb-4">

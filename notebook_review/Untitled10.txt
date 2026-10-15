@@ -1,0 +1,599 @@
+# CELL 0 [code]
+"""AuditAI final pipeline: ablation of 4 feature recipes + all validation checks (Colab-ready).
+
+WHAT IT DOES (one run, one identical chronological split for every variant)
+  1. Audits the pre-computed aggregate columns in your CSV for full-ledger leakage.
+  2. Rebuilds history features point-in-time and PROVES it with a "corrupt the future" test.
+  3. Trains Autoencoder + Isolation Forest (normal rows only) for 4 feature variants x N seeds:
+        A  = Untitled9-style point-in-time features
+        B  = A + OCR / receipt features (Untitled14 had these, Untitled9 dropped them)
+        C  = B + robust features (capped counts, log-scaled z-scores, new-entity flags, clipping)
+        D  = C + raw vendor/employee/approver IDs   -> memorization check
+        E  = supervised gradient boosting on C       -> reference ceiling (uses labels)
+  4. Reports ROC-AUC / PR-AUC / precision / recall / F1 (mean +- std over seeds), loss curves
+     (train vs unseen-normal), score distributions, confusion matrix, PR/ROC, alert-budget curve,
+     per-risk_category recall, seed stability, drift (PSI), and a review CSV with top drivers.
+
+NOTE ON LABELS: is_anomaly is a SYNTHETIC benchmark label. Every metric below measures agreement
+with that generator, not real-world fraud-detection accuracy. Risk/label columns are never inputs.
+"""
+# %% [markdown]
+# !pip -q install pandas scikit-learn torch matplotlib seaborn joblib
+
+# %% 0. Imports and configuration
+from __future__ import annotations
+
+import copy, json, random, warnings
+from pathlib import Path
+
+import joblib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from scipy.stats import spearmanr
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import HistGradientBoostingClassifier, IsolationForest
+from sklearn.metrics import (ConfusionMatrixDisplay, PrecisionRecallDisplay, RocCurveDisplay,
+                             average_precision_score, confusion_matrix, f1_score,
+                             precision_recall_curve, precision_score, recall_score, roc_auc_score)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, OrdinalEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+# <<TORCH_IMPORTS_START
+import torch
+import torch.nn as nn
+# <<TORCH_IMPORTS_END
+
+warnings.filterwarnings("ignore")
+sns.set_theme(style="whitegrid")
+
+# ----------------------------------------------------------------- CONFIG ---
+DATA_PATH = None                     # full path, or None to search /content, Drive, then open the upload dialog
+DATASET_FILENAME = "audit_anomalies_joined_dataset.csv"
+TARGET, CATEGORY_COL = "is_anomaly", "risk_category"   # CATEGORY_COL is used ONLY for evaluation
+SEED, N_SEEDS = 42, 3                # seeds per variant (mean +- std is reported)
+EPOCHS, BATCH_SIZE, LEARNING_RATE, LATENT_DIM, PATIENCE = 100, 256, 1e-3, 16, 12
+MAX_ONE_HOT_CARDINALITY = 30         # variants A-C: skip categoricals with more levels (measured on normal train)
+COUNT_CAP = 30                       # variant C: history counts saturate here (counts that only grow cause drift)
+CLIP = 8.0                           # variant C: scaled features are clipped to +-CLIP
+THRESHOLD_QUANTILE = 0.99            # label-free threshold: this quantile of normal validation scores
+PRIMARY_FAMILY = "Combined mean"     # score used in the headline comparison
+OUTPUT_DIR = Path("auditai_final_outputs"); OUTPUT_DIR.mkdir(exist_ok=True)
+REFERENCE_RUNS = {"Untitled14 (reported)": (0.982, 0.995), "Untitled9 (reported)": (0.822, 0.924)}   # (PR-AUC, ROC-AUC)
+# --------------------------------------------------------------------------
+
+def save_show(name: str) -> None:
+    plt.tight_layout(); plt.savefig(OUTPUT_DIR / name, dpi=130, bbox_inches="tight"); plt.show()
+
+# <<TORCH_BLOCK_START
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+print("Using device:", DEVICE)
+
+def set_seed(seed: int) -> None:
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+
+class TransactionAutoencoder(nn.Module):
+    def __init__(self, input_dim: int):
+        super().__init__()
+        h1, h2 = max(64, min(256, input_dim * 2)), max(32, min(128, input_dim))
+        self.encoder = nn.Sequential(nn.Linear(input_dim, h1), nn.ReLU(), nn.Dropout(0.10),
+                                     nn.Linear(h1, h2), nn.ReLU(), nn.Linear(h2, LATENT_DIM))
+        self.decoder = nn.Sequential(nn.Linear(LATENT_DIM, h2), nn.ReLU(), nn.Linear(h2, h1), nn.ReLU(),
+                                     nn.Linear(h1, input_dim))
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
+
+class TrainedAE:
+    """Wrapper with a framework-neutral interface: errors(), feature_errors(), save()."""
+    def __init__(self, model, history):
+        self.model, self.history = model, history
+    def _sq_err(self, x: np.ndarray) -> np.ndarray:
+        self.model.eval(); out = []
+        with torch.no_grad():
+            for s in range(0, len(x), BATCH_SIZE):
+                b = torch.as_tensor(x[s:s + BATCH_SIZE], dtype=torch.float32, device=DEVICE)
+                out.append(((self.model(b) - b) ** 2).cpu().numpy())
+        return np.vstack(out)
+    def errors(self, x): return self._sq_err(x).mean(axis=1)
+    def feature_errors(self, x): return self._sq_err(x)
+    def save(self, path, extra): torch.save({"state_dict": self.model.state_dict(), **extra}, path)
+
+def train_autoencoder(x_train: np.ndarray, x_val_normal: np.ndarray, seed: int) -> TrainedAE:
+    set_seed(seed)
+    model = TransactionAutoencoder(x_train.shape[1]).to(DEVICE)
+    opt, loss_fn = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5), nn.MSELoss()
+    tr = torch.as_tensor(x_train, dtype=torch.float32, device=DEVICE)
+    holder = TrainedAE(model, {"train_loss": [], "val_normal_loss": [], "best_epoch": 0})
+    best, best_state, wait = float("inf"), None, 0
+    for epoch in range(1, EPOCHS + 1):
+        model.train(); losses = []
+        for idx in torch.randperm(len(tr), device=DEVICE).split(BATCH_SIZE):
+            batch = tr[idx]; opt.zero_grad(); loss = loss_fn(model(batch), batch); loss.backward(); opt.step()
+            losses.append(loss.item())
+        val = float(holder.errors(x_val_normal).mean())
+        holder.history["train_loss"].append(float(np.mean(losses))); holder.history["val_normal_loss"].append(val)
+        if val < best: best, best_state, wait, holder.history["best_epoch"] = val, copy.deepcopy(model.state_dict()), 0, epoch
+        else: wait += 1
+        if wait >= PATIENCE: break
+    model.load_state_dict(best_state)
+    return holder
+# <<TORCH_BLOCK_END
+
+# %% 1. Locate and load the dataset
+def locate_dataset() -> Path:
+    if DATA_PATH and Path(DATA_PATH).is_file():
+        return Path(DATA_PATH)
+    for c in (Path("/content") / DATASET_FILENAME, Path("/content/drive/MyDrive") / DATASET_FILENAME):
+        if c.is_file(): return c
+    drive = Path("/content/drive/MyDrive")
+    if drive.is_dir():
+        hits = list(drive.rglob(DATASET_FILENAME))
+        if hits: return hits[0]
+    try:
+        from google.colab import files
+        print(f"Select {DATASET_FILENAME} in the upload dialog.")
+        for name in files.upload():
+            if name.lower().endswith(".csv"): return Path("/content") / name
+    except ImportError:
+        pass
+    raise FileNotFoundError(f"Could not find {DATASET_FILENAME}. Set DATA_PATH.")
+
+raw = pd.read_csv(locate_dataset(), low_memory=False)
+missing = {"transaction_date", "amount", "vendor_id", "employee_id", TARGET} - set(raw.columns)
+assert not missing, f"Missing required columns: {sorted(missing)}"
+print(f"Loaded {raw.shape[0]:,} rows x {raw.shape[1]} columns | anomaly rate {raw[TARGET].mean():.1%}")
+print("Columns:", list(raw.columns))
+
+# %% 2. Audit: are the pre-computed aggregate columns in the CSV leaky?
+def static_share(df, col, key):
+    """Share of groups (>=2 rows) where `col` has ONE value. ~100% => whole-ledger snapshot, not a running value."""
+    sub = df[df.groupby(key)[col].transform("size") >= 2]
+    return float((sub.groupby(key)[col].nunique() <= 1).mean())
+
+rows = []
+amt = pd.to_numeric(raw["amount"], errors="coerce")
+for col, key in [("vendor_transaction_count", "vendor_id"), ("vendor_avg_amount", "vendor_id"),
+                 ("vendor_monthly_frequency", "vendor_id"), ("employee_transaction_count", "employee_id"),
+                 ("employee_avg_amount", "employee_id")]:
+    if col in raw:
+        s = static_share(raw, col, key)
+        rows.append((col, f"{s:.0%} of {key}s have ONE value", "LEAKY (whole-ledger)" if s > 0.95 else "varies over time"))
+if "amount_zscore" in raw:
+    z = pd.to_numeric(raw["amount_zscore"], errors="coerce")
+    c = float(np.corrcoef(z.fillna(0), ((amt - amt.mean()) / amt.std()).fillna(0))[0, 1])
+    whole_file = abs(z.mean()) < 0.02 and abs(z.std() - 1) < 0.02          # a running z-score would not be exactly N(0,1) overall
+    rows.append(("amount_zscore", f"mean {z.mean():.3f}, std {z.std():.3f}, corr with whole-ledger z = {c:.4f}",
+                 "LEAKY (whole-ledger)" if (whole_file or c > 0.999) else "different formula (verify)"))
+audit = pd.DataFrame(rows, columns=["column", "test", "verdict"])
+print(audit.to_string(index=False) if len(audit) else "No pre-computed aggregate columns found in the CSV.")
+print("The pipeline never uses these columns: it rebuilds each one point-in-time (next cell).")
+
+# %% 3. Point-in-time (leakage-safe) feature builder + "corrupt the future" proof
+def first_existing(df, *names):
+    return next((n for n in names if n in df.columns), None)
+
+def prior_stats(df, keys, col):
+    """count / mean / std of `col` over EARLIER rows of the same group (current row excluded)."""
+    x = df[col]; g = df.groupby(keys, sort=False)
+    n = g.cumcount(); s1 = g[col].cumsum() - x
+    sq = df.assign(_sq=x ** 2); s2 = sq.groupby(keys, sort=False)["_sq"].cumsum() - sq["_sq"]
+    nn = n.replace(0, np.nan); mean = s1 / nn
+    return n, mean, np.sqrt((s2 / nn - mean ** 2).clip(lower=0))
+
+def prior_window_count(df, key, days=30):
+    """Earlier rows (by position) of the same group inside the previous `days` days."""
+    out = np.zeros(len(df)); t = df["_event_time"].values.astype("datetime64[ns]")
+    for idx in df.groupby(key, sort=False).indices.values():
+        tg = t[idx]; out[idx] = np.arange(len(idx)) - np.searchsorted(tg, tg - np.timedelta64(days, "D"), side="right")
+    return out
+
+def build_features(raw_df: pd.DataFrame) -> pd.DataFrame:
+    df = raw_df.copy()
+    date = pd.to_datetime(df["transaction_date"], errors="coerce")
+    tcol = first_existing(df, "transaction_time", "time")
+    time = pd.to_timedelta(df[tcol].astype(str), errors="coerce").fillna(pd.Timedelta(0)) if tcol else pd.Timedelta(0)
+    df["_event_time"], df["_source_order"] = date + time, np.arange(len(df))
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+    df = (df.dropna(subset=["_event_time", "amount"])
+            .sort_values(["_event_time", "_source_order"], kind="stable").reset_index(drop=True))
+    # keys without NaN so "missing vendor" is its own group instead of silently vanishing
+    df["_v"] = df["vendor_id"].fillna("__MISSING__").astype(str)
+    df["_e"] = df["employee_id"].fillna("__MISSING__").astype(str)
+    dcol = first_existing(df, "department_id", "department_name")
+    df["_d"] = df[dcol].fillna("__MISSING__").astype(str) if dcol else "all"
+    df["_all"] = 0
+    ts = df["_event_time"]; df["_la"] = np.log1p(df["amount"].abs())
+
+    # ---- calendar / row-level (known the moment the row is entered)
+    df["hour"] = ts.dt.hour.astype("float32"); df["day_of_week"] = ts.dt.dayofweek.astype("float32")
+    df["month"] = ts.dt.month.astype("float32"); df["quarter"] = ts.dt.quarter.astype("float32")
+    df["weekend_flag"] = (df["day_of_week"] >= 5).astype("float32")
+    df["is_after_hours"] = ((df["hour"] < 8) | (df["hour"] >= 20)).astype("float32")
+    df["log_amount"] = np.log1p(df["amount"].clip(lower=0))
+    df["is_negative"] = (df["amount"] < 0).astype("float32")
+    df["is_round"] = ((df["amount"].abs() >= 10_000) & (df["amount"].abs() % 1000 == 0)).astype("float32")
+
+    # ---- Untitled9-style history features (rebuilt from EARLIER rows only)
+    n_g = pd.Series(np.arange(len(df)), dtype="float64")
+    s1 = df["amount"].cumsum() - df["amount"]; s2 = (df["amount"] ** 2).cumsum() - df["amount"] ** 2
+    m_g = s1 / n_g.replace(0, np.nan); sd_g = np.sqrt((s2 / n_g.replace(0, np.nan) - m_g ** 2).clip(lower=0))
+    df["amount_zscore"] = ((df["amount"] - m_g) / sd_g.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+    n_v, _, _ = prior_stats(df, ["_v"], "amount"); s_v = df.groupby("_v", sort=False)["amount"].cumsum() - df["amount"]
+    df["vendor_transaction_count"] = n_v.astype("float32"); df["vendor_avg_amount"] = s_v / n_v.replace(0, np.nan)
+    df["amount_to_vendor_avg_ratio"] = df["amount"] / df["vendor_avg_amount"].replace(0, np.nan)
+    n_d, _, _ = prior_stats(df, ["_d"], "amount"); s_d = df.groupby("_d", sort=False)["amount"].cumsum() - df["amount"]
+    df["amount_to_department_avg_ratio"] = df["amount"] / (s_d / n_d.replace(0, np.nan)).replace(0, np.nan)
+    n_e, _, _ = prior_stats(df, ["_e"], "amount"); s_e = df.groupby("_e", sort=False)["amount"].cumsum() - df["amount"]
+    df["employee_transaction_count"] = n_e.astype("float32"); df["employee_avg_amount"] = s_e / n_e.replace(0, np.nan)
+    df["_ym"] = ts.dt.to_period("M").astype(str)
+    df["vendor_monthly_frequency"] = df.groupby(["_v", "_ym"], sort=False).cumcount().astype("float32")
+
+    # ---- variant C: robust versions (log space, capped counts, explicit "new / missing" flags)
+    n_v, m_v, sd_v = prior_stats(df, ["_v"], "_la"); n_e, m_e, sd_e = prior_stats(df, ["_e"], "_la")
+    n_d, m_d, sd_d = prior_stats(df, ["_d"], "_la"); n_a, m_a, sd_a = prior_stats(df, ["_all"], "_la")
+    n_p, _, _ = prior_stats(df, ["_e", "_v"], "_la"); la = df["_la"]
+    df["z_global"] = np.where(n_a >= 50, (la - m_a) / (sd_a + 1e-6), 0.0)
+    df["z_vendor"] = np.where(n_v >= 3, (la - m_v) / (sd_v + 0.25), 0.0)
+    df["z_employee"] = np.where(n_e >= 3, (la - m_e) / (sd_e + 0.25), 0.0)
+    df["z_department"] = np.where(n_d >= 20, (la - m_d) / (sd_d + 0.25), 0.0)
+    for c in ["z_global", "z_vendor", "z_employee", "z_department"]: df[c] = df[c].clip(-10, 10)
+    df["log_vendor_prior_n"], df["log_employee_prior_n"] = np.log1p(n_v.clip(upper=COUNT_CAP)), np.log1p(n_e.clip(upper=COUNT_CAP))
+    df["vendor_is_new"], df["employee_is_new"] = (n_v == 0).astype("float32"), (n_e == 0).astype("float32")
+    df["pair_is_new"] = (n_p == 0).astype("float32")
+    df["vendor_missing"] = df["vendor_id"].isna().astype("float32"); df["employee_missing"] = df["employee_id"].isna().astype("float32")
+    df["log_vendor_freq_30d"] = np.log1p(prior_window_count(df, "_v", 30))
+    gap = (ts - df.groupby("_v", sort=False)["_event_time"].shift()).dt.total_seconds() / 86400
+    df["log_days_since_vendor"] = np.log1p(gap.fillna(365).clip(lower=0))
+
+    # ---- OCR / receipt features (row-level)
+    ocr = pd.to_numeric(df["ocr_extracted_amount"], errors="coerce") if "ocr_extracted_amount" in df else pd.Series(np.nan, index=df.index)
+    claim = pd.to_numeric(df["receipt_claimed_amount"], errors="coerce") if "receipt_claimed_amount" in df else pd.Series(np.nan, index=df.index)
+    df["ocr_extracted_amount"], df["receipt_claimed_amount"] = ocr, claim
+    df["has_receipt"] = (ocr.notna() | claim.notna()).astype("float32")
+    df["ocr_mismatch_ratio"] = ((ocr - claim).abs() / claim.replace(0, np.nan)).fillna(0).clip(0, 10)
+    df["log_ocr_amount"], df["log_receipt_amount"] = np.log1p(ocr.fillna(0).abs()), np.log1p(claim.fillna(0).abs())
+    return df.drop(columns=["_source_order", "_all", "_ym"])
+
+frame = build_features(raw)
+print(f"Feature frame: {frame.shape}, {frame['_event_time'].min()} -> {frame['_event_time'].max()}")
+
+PIT_COLS = ["amount_zscore", "vendor_transaction_count", "vendor_avg_amount", "amount_to_vendor_avg_ratio",
+            "amount_to_department_avg_ratio", "employee_transaction_count", "employee_avg_amount",
+            "vendor_monthly_frequency", "z_global", "z_vendor", "z_employee", "z_department",
+            "log_vendor_prior_n", "log_employee_prior_n", "vendor_is_new", "employee_is_new", "pair_is_new",
+            "log_vendor_freq_30d", "log_days_since_vendor"]
+
+def pit_leakage_test(raw_df, builder=None, cols=None, cutoffs=(0.3, 0.6, 0.85), seed=0):
+    """Corrupt every row AFTER a cutoff (amounts x20-100, vendor/employee ids shuffled).
+    Point-in-time features of rows BEFORE the cutoff must not change at all."""
+    rng = np.random.default_rng(seed)
+    ev = pd.to_datetime(raw_df["transaction_date"], errors="coerce")
+    tcol = first_existing(raw_df, "transaction_time", "time")
+    if tcol: ev = ev + pd.to_timedelta(raw_df[tcol].astype(str), errors="coerce").fillna(pd.Timedelta(0))
+    base_raw = raw_df.assign(_t=ev).dropna(subset=["_t"]).sort_values("_t", kind="stable").drop(columns="_t").reset_index(drop=True)
+    base_raw = base_raw[pd.to_numeric(base_raw["amount"], errors="coerce").notna()].reset_index(drop=True)   # same rows the builder keeps
+    builder, cols = builder or build_features, cols or PIT_COLS
+    base = builder(base_raw); worst = 0.0
+    for c in cutoffs:
+        k = int(len(base) * c); t = base_raw.copy()
+        t.loc[k:, "amount"] = pd.to_numeric(t.loc[k:, "amount"], errors="coerce").values * rng.uniform(20, 100, len(t) - k)
+        for col in ("vendor_id", "employee_id"):
+            t.loc[k:, col] = rng.permutation(t.loc[k:, col].values)
+        alt = builder(t)
+        a, b = base.loc[:k - 1, cols].astype(float).values, alt.loc[:k - 1, cols].astype(float).values
+        worst = max(worst, float(np.abs(np.nan_to_num(a, nan=-1e12) - np.nan_to_num(b, nan=-1e12)).max()))
+    return worst < 1e-9, worst
+
+leak_ok, leak_worst = pit_leakage_test(raw)
+print(f"Point-in-time features: {'PASS' if leak_ok else 'FAIL'} (max change before cutoff = {leak_worst:.2e})")
+
+def leaky_builder(df):                     # deliberately wrong: vendor mean over the WHOLE ledger (what a leaky CSV column does)
+    d = build_features(df); d["leaky_vendor_mean"] = d.groupby("_v")["log_amount"].transform("mean"); return d
+caught = not pit_leakage_test(raw, leaky_builder, ["leaky_vendor_mean"])[0]
+print(f"Sanity check of the test itself: a deliberately leaky feature is {'CAUGHT (test works)' if caught else 'NOT caught (test is broken)'}")
+
+# %% 4. Chronological split (identical for every variant) and variant definitions
+CAT_BASE = ["entry_type", "general_ledger_account", "currency", "payment_mode", "department_name"]
+CAT_ID = ["vendor_id", "employee_id", "approved_by_id", "approved_by"]
+for c in CAT_BASE + CAT_ID:                                   # missing category becomes its own level
+    if c in frame: frame[c] = frame[c].where(frame[c].notna(), "__MISSING__").astype(str)
+
+n = len(frame); i1, i2 = int(n * 0.70), int(n * 0.85)
+train, val, test = frame.iloc[:i1].copy(), frame.iloc[i1:i2].copy(), frame.iloc[i2:].copy()
+y_val, y_test = val[TARGET].to_numpy().astype(int), test[TARGET].to_numpy().astype(int)
+normal_train, normal_val, normal_test = train[train[TARGET] == 0], val[val[TARGET] == 0], test[test[TARGET] == 0]
+print(f"train {len(train):,} (normal {len(normal_train):,}) | val {len(val):,} (normal {len(normal_val):,}) | "
+      f"test {len(test):,} (anomalies {y_test.sum()}, prevalence {y_test.mean():.1%})")
+print(f"train {train['_event_time'].min().date()}..{train['_event_time'].max().date()} | "
+      f"test {test['_event_time'].min().date()}..{test['_event_time'].max().date()}")
+
+NUM_A = ["amount", "log_amount", "amount_zscore", "amount_to_vendor_avg_ratio", "amount_to_department_avg_ratio",
+         "hour", "day_of_week", "month", "quarter", "weekend_flag", "vendor_transaction_count", "vendor_avg_amount",
+         "vendor_monthly_frequency", "employee_transaction_count", "employee_avg_amount"]
+NUM_OCR = ["ocr_extracted_amount", "receipt_claimed_amount", "ocr_mismatch_ratio", "has_receipt"]
+NUM_C = ["log_amount", "is_negative", "is_round", "hour", "weekend_flag", "is_after_hours",
+         "z_global", "z_vendor", "z_employee", "z_department",
+         "log_vendor_prior_n", "log_employee_prior_n", "vendor_is_new", "employee_is_new", "pair_is_new",
+         "vendor_missing", "employee_missing", "log_vendor_freq_30d", "log_days_since_vendor",
+         "log_ocr_amount", "log_receipt_amount", "ocr_mismatch_ratio", "has_receipt"]
+VARIANTS = {
+    "A": dict(label="A: point-in-time history (Untitled9-style)", num=NUM_A, cat=CAT_BASE, robust=False, ids=False),
+    "B": dict(label="B: A + OCR/receipt features", num=NUM_A + NUM_OCR, cat=CAT_BASE, robust=False, ids=False),
+    "C": dict(label="C: B + robust features", num=NUM_C, cat=CAT_BASE, robust=True, ids=False),
+    "D": dict(label="D: C + raw IDs (memorization check)", num=NUM_C, cat=CAT_BASE + CAT_ID, robust=True, ids=True),
+}
+
+def clip_scaled(x): return np.clip(x, -CLIP, CLIP)
+
+def make_preprocessor(num, cat, robust):
+    steps = [("impute", SimpleImputer(strategy="median", add_indicator=True)), ("scale", StandardScaler())]
+    if robust: steps.append(("clip", FunctionTransformer(clip_scaled, feature_names_out="one-to-one")))
+    return ColumnTransformer([("num", Pipeline(steps), num),
+                              ("cat", OneHotEncoder(handle_unknown="ignore", min_frequency=5, sparse_output=False), cat)])
+
+def variant_columns(spec):
+    num = [c for c in spec["num"] if c in frame]
+    cat = [c for c in spec["cat"] if c in frame]
+    if not spec["ids"]:                                       # cardinality judged on normal TRAIN rows only
+        cat = [c for c in cat if normal_train[c].nunique() <= MAX_ONE_HOT_CARDINALITY]
+    return num, cat
+
+# %% 5. Train and score every variant x seed (Autoencoder + Isolation Forest, normal rows only)
+FAMILIES = ["AE only", "IF only", "Combined mean", "Combined max", "Legacy 0-1 clipped"]
+
+def robust_z(ref, s):
+    """Log-scale score centred/scaled by a clean reference (median/MAD): unclipped, so top scores are not tied."""
+    lr, l = np.log(ref + 1e-12), np.log(s + 1e-12)
+    med = np.median(lr); mad = np.median(np.abs(lr - med)) * 1.4826 + 1e-9
+    return (l - med) / mad
+
+def score_families(ae, iso, x, refs):
+    e, f = ae.errors(x), -iso.score_samples(x)
+    z_ae, z_if = robust_z(refs["ae"], e), robust_z(refs["if"], f)
+    (lo_a, hi_a), (lo_i, hi_i) = refs["ae_q"], refs["if_q"]
+    legacy = (0.5 * np.clip((e - lo_a) / max(hi_a - lo_a, 1e-9), 0, 1) + 0.5 * np.clip((f - lo_i) / max(hi_i - lo_i, 1e-9), 0, 1))
+    return {"AE only": z_ae, "IF only": z_if, "Combined mean": (z_ae + z_if) / 2,
+            "Combined max": np.maximum(z_ae / refs["t_ae"], z_if / refs["t_if"]), "Legacy 0-1 clipped": legacy}, e, f
+
+def make_refs(ae, iso, x_train, x_val_normal):
+    r_ae, r_if = ae.errors(x_val_normal), -iso.score_samples(x_val_normal)
+    q99 = lambda z: max(float(np.quantile(z, 0.99)), 1e-3)
+    return {"ae": r_ae, "if": r_if, "t_ae": q99(robust_z(r_ae, r_ae)), "t_if": q99(robust_z(r_if, r_if)),
+            "ae_q": tuple(np.quantile(ae.errors(x_train), [0.01, 0.995])),
+            "if_q": tuple(np.quantile(-iso.score_samples(x_train), [0.01, 0.995]))}
+
+def best_f1_threshold(y, s):
+    p, r, t = precision_recall_curve(y, s)
+    f1 = 2 * p[:-1] * r[:-1] / np.clip(p[:-1] + r[:-1], 1e-12, None)
+    return float(t[int(np.argmax(f1))])
+
+def threshold_metrics(y, s, thr, prefix):
+    pred = (s >= thr).astype(int)
+    return {f"{prefix}_precision": precision_score(y, pred, zero_division=0), f"{prefix}_recall": recall_score(y, pred, zero_division=0),
+            f"{prefix}_f1": f1_score(y, pred, zero_division=0), f"{prefix}_alert_rate": pred.mean(),
+            f"{prefix}_normal_fpr": float((s[y == 0] >= thr).mean())}
+
+def result_row(key, seed, fam, s_val, s_test):
+    thr_f1 = best_f1_threshold(y_val, s_val)                         # labels calibrate ONLY the validation threshold
+    thr_q = float(np.quantile(s_val[y_val == 0], THRESHOLD_QUANTILE))  # label-free alternative
+    return {"variant": key, "seed": seed, "family": fam, "val_pr": average_precision_score(y_val, s_val),
+            "pr_auc": average_precision_score(y_test, s_test), "roc_auc": roc_auc_score(y_test, s_test),
+            "thr_f1": thr_f1, "thr_q": thr_q, **threshold_metrics(y_test, s_test, thr_f1, "f1thr"),
+            **threshold_metrics(y_test, s_test, thr_q, "qthr")}
+
+results, store = [], {}
+for key, spec in VARIANTS.items():
+    num, cat = variant_columns(spec)
+    pre = make_preprocessor(num, cat, spec["robust"])
+    x_tr = pre.fit_transform(normal_train[num + cat]).astype("float32")          # fitted on NORMAL TRAIN only
+    x_vn, x_val, x_test = (pre.transform(d[num + cat]).astype("float32") for d in (normal_val, val, test))
+    store[key] = {"pre": pre, "num": num, "cat": cat, "dim": x_tr.shape[1], "seeds": []}
+    print(f"\n[{spec['label']}] {len(num)} numeric + {len(cat)} categorical -> {x_tr.shape[1]} model inputs")
+    for si in range(N_SEEDS):
+        seed = SEED + si
+        ae = train_autoencoder(x_tr, x_vn, seed)
+        iso = IsolationForest(n_estimators=300, random_state=seed, n_jobs=-1).fit(x_tr)
+        refs = make_refs(ae, iso, x_tr, x_vn)
+        sv, _, _ = score_families(ae, iso, x_val, refs); st, e_test, f_test = score_families(ae, iso, x_test, refs)
+        for fam in FAMILIES: results.append(result_row(key, seed, fam, sv[fam], st[fam]))
+        h = ae.history
+        print(f"  seed {seed}: epochs={len(h['train_loss'])} best_epoch={h['best_epoch']} "
+              f"train_loss={h['train_loss'][h['best_epoch'] - 1]:.4f} val_normal_loss={h['val_normal_loss'][h['best_epoch'] - 1]:.4f} "
+              f"| test PR-AUC ({PRIMARY_FAMILY}) = {average_precision_score(y_test, st[PRIMARY_FAMILY]):.3f}")
+        rec = {"seed": seed, "sv": sv, "st": st, "history": h, "e_test": e_test, "f_test": f_test, "refs": refs}
+        if si == 0: rec.update(ae=ae, iso=iso, x_tr=x_tr, x_vn=x_vn, x_val=x_val, x_test=x_test)
+        store[key]["seeds"].append(rec)
+
+# ---- E: supervised reference ceiling (uses labels; NOT comparable as an unsupervised detector)
+num_c, cat_c = variant_columns(VARIANTS["C"]); pre_e = make_preprocessor(num_c, cat_c, True)
+x_e_tr = pre_e.fit_transform(train[num_c + cat_c]).astype("float32")
+x_e_val, x_e_test = pre_e.transform(val[num_c + cat_c]).astype("float32"), pre_e.transform(test[num_c + cat_c]).astype("float32")
+for si in range(N_SEEDS):
+    gbm = HistGradientBoostingClassifier(max_iter=200, random_state=SEED + si).fit(x_e_tr, train[TARGET].astype(int))
+    results.append(result_row("E", SEED + si, "Supervised GBM", gbm.predict_proba(x_e_val)[:, 1], gbm.predict_proba(x_e_test)[:, 1]))
+VARIANT_LABELS = {**{k: v["label"] for k, v in VARIANTS.items()}, "E": "E: supervised GBM on C (reference, uses labels)"}
+res = pd.DataFrame(results); res.to_csv(OUTPUT_DIR / "all_results.csv", index=False)
+
+# %% 6. Headline comparison (mean +- std over seeds), chosen best variant, and chart
+def pm(g, col): return f"{g[col].mean():.3f} +- {g[col].std(ddof=0):.3f}"
+rows = []
+for key in VARIANT_LABELS:
+    fam = "Supervised GBM" if key == "E" else PRIMARY_FAMILY
+    g = res[(res.variant == key) & (res.family == fam)]
+    rows.append({"variant": VARIANT_LABELS[key], "score": fam, "PR-AUC": pm(g, "pr_auc"), "ROC-AUC": pm(g, "roc_auc"),
+                 "precision": pm(g, "f1thr_precision"), "recall": pm(g, "f1thr_recall"), "F1": pm(g, "f1thr_f1")})
+headline = pd.DataFrame(rows)
+print(f"HEADLINE (test period, prevalence {y_test.mean():.1%}; threshold = best F1 on validation labels)\n")
+print(headline.to_string(index=False)); headline.to_csv(OUTPUT_DIR / "headline_comparison.csv", index=False)
+print("\nReported earlier for reference: " + "; ".join(f"{k}: PR-AUC {a}, ROC-AUC {b}" for k, (a, b) in REFERENCE_RUNS.items()))
+
+fam_pr = res[res.variant.isin(VARIANTS)].pivot_table(index="variant", columns="family", values="pr_auc", aggfunc="mean")[FAMILIES]
+print("\nTest PR-AUC by score family (mean over seeds):"); print(fam_pr.round(3))
+
+sel = res[res.variant.isin(VARIANTS)].groupby(["variant", "family"])["val_pr"].mean()
+BEST_KEY, BEST_FAM = sel.idxmax()                                    # chosen on VALIDATION, never on test
+print(f"\nBest unsupervised setup by VALIDATION PR-AUC: variant {BEST_KEY}, score '{BEST_FAM}'")
+
+fig, ax = plt.subplots(1, 2, figsize=(14, 4.5))
+for a, metric, title, ref_i in [(ax[0], "pr_auc", "Test PR-AUC", 0), (ax[1], "roc_auc", "Test ROC-AUC", 1)]:
+    g = res[((res.family == PRIMARY_FAMILY) & res.variant.isin(VARIANTS)) | (res.family == "Supervised GBM")]
+    agg = g.groupby("variant")[metric].agg(["mean", "std"]).reindex(list(VARIANT_LABELS))
+    a.bar(agg.index, agg["mean"], yerr=agg["std"].fillna(0), capsize=4, color=["#4c78a8"] * 4 + ["#9d9d9d"])
+    for (name, vals), ls in zip(REFERENCE_RUNS.items(), ["--", ":"]): a.axhline(vals[ref_i], color="crimson", ls=ls, label=name)
+    a.set(title=title + f" ({PRIMARY_FAMILY}; grey = supervised reference)", ylim=(0, 1.02)); a.legend(fontsize=8, loc="lower right")
+save_show("01_variant_comparison.png")
+
+# %% 7. Overfitting diagnostics: train vs UNSEEN normal, for every variant
+fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+for a, key in zip(axes.ravel(), VARIANTS):
+    h = store[key]["seeds"][0]["history"]
+    a.plot(h["train_loss"], label="normal train (dropout on)"); a.plot(h["val_normal_loss"], label="unseen normal validation")
+    a.axvline(h["best_epoch"] - 1, ls="--", color="k", alpha=0.5, label="restored epoch")
+    a.set(title=VARIANTS[key]["label"], xlabel="epoch", ylabel="reconstruction MSE", yscale="log"); a.legend(fontsize=8)
+save_show("02_autoencoder_loss_curves.png")
+
+rows = []
+for key in VARIANTS:
+    s0 = store[key]["seeds"][0]; h = s0["history"]; b = h["best_epoch"] - 1
+    tr_eval = s0["ae"].errors(s0["x_tr"]).mean(); va = s0["ae"].errors(s0["x_vn"]).mean()
+    te_n = s0["e_test"][y_test == 0].mean()
+    rows.append({"variant": VARIANTS[key]["label"], "epochs run": len(h["train_loss"]), "restored epoch": b + 1,
+                 "train err (eval mode)": tr_eval, "val-normal err": va, "val/train": va / tr_eval, "test-normal / val-normal": te_n / va})
+overfit = pd.DataFrame(rows); print(overfit.round(3).to_string(index=False))
+print("\nHow to read it: val/train near 1 = generalizes. Val loss RISING = overfitting. A big but flat gap (e.g. 5-7x) means the")
+print("model reproduces training normals much better than unseen normals: usually unbounded features or time drift, not classic overfitting.")
+
+bk = store[BEST_KEY]["seeds"][0]
+pct = pd.DataFrame({k: pd.Series(v) for k, v in {"train normal": bk["ae"].errors(bk["x_tr"]), "val normal": bk["ae"].errors(bk["x_vn"]),
+                    "test normal": bk["e_test"][y_test == 0]}.items()}).describe(percentiles=[.5, .95, .99]).loc[["mean", "50%", "95%", "99%"]]
+print(f"\nAutoencoder error percentiles, variant {BEST_KEY}:"); print(pct.round(4))
+
+# %% 8. Best variant deep-dive (chosen on validation): threshold, confusion matrix, PR/ROC, score distributions
+first_seed = SEED
+row = res[(res.variant == BEST_KEY) & (res.family == BEST_FAM) & (res.seed == first_seed)].iloc[0]
+thr_f1, thr_q = float(row["thr_f1"]), float(row["thr_q"])
+s_test, s_val = bk["st"][BEST_FAM], bk["sv"][BEST_FAM]
+pred = (s_test >= thr_f1).astype(int)
+print(f"Best setup: {VARIANTS[BEST_KEY]['label']} | score = {BEST_FAM} | seed {first_seed}")
+print(f"Threshold A (best F1 on validation labels) = {thr_f1:.3f}: precision {row['f1thr_precision']:.3f}, recall {row['f1thr_recall']:.3f}, "
+      f"F1 {row['f1thr_f1']:.3f}, alert rate {row['f1thr_alert_rate']:.1%}, false-alarm rate on normals {row['f1thr_normal_fpr']:.1%}")
+print(f"Threshold B (label-free, {THRESHOLD_QUANTILE:.0%} of normal validation scores) = {thr_q:.3f}: precision {row['qthr_precision']:.3f}, "
+      f"recall {row['qthr_recall']:.3f}, alert rate {row['qthr_alert_rate']:.1%}, false-alarm rate on normals {row['qthr_normal_fpr']:.1%}")
+print(f"PR-AUC {row['pr_auc']:.3f} (chance = prevalence {y_test.mean():.3f}) | ROC-AUC {row['roc_auc']:.3f}")
+
+fig, ax = plt.subplots(2, 2, figsize=(13, 9))
+lo, hi = np.percentile(s_test, [1, 99]); clipped = np.clip(s_test, lo, hi)
+sns.histplot(x=clipped, hue=np.where(y_test == 1, "anomaly", "normal"), bins=50, stat="density", common_norm=False,
+             palette={"normal": "#54a24b", "anomaly": "#e45756"}, ax=ax[0, 0])
+ax[0, 0].axvline(np.clip(thr_f1, lo, hi), color="k", ls="--", label="threshold A (best F1)")
+ax[0, 0].axvline(np.clip(thr_q, lo, hi), color="grey", ls=":", label="threshold B (label-free)")
+ax[0, 0].set(title=f"Test score distribution ({BEST_FAM}; clipped to 1-99 pct)", xlabel="score"); ax[0, 0].legend(fontsize=8)
+ConfusionMatrixDisplay(confusion_matrix(y_test, pred), display_labels=["Normal", "Anomaly"]).plot(ax=ax[0, 1], colorbar=False)
+ax[0, 1].set_title("Confusion matrix (threshold A)")
+PrecisionRecallDisplay.from_predictions(y_test, s_test, ax=ax[1, 0]); ax[1, 0].axhline(y_test.mean(), color="grey", ls=":")
+ax[1, 0].set_title(f"Precision-Recall (AP={row['pr_auc']:.3f}; dotted = chance)")
+RocCurveDisplay.from_predictions(y_test, s_test, ax=ax[1, 1]); ax[1, 1].set_title(f"ROC (AUC={row['roc_auc']:.3f})")
+save_show("03_best_variant_evaluation.png")
+
+order = np.argsort(-s_test, kind="stable"); ks = np.arange(1, 31)
+prec = [y_test[order[:max(1, int(len(y_test) * k / 100))]].mean() for k in ks]
+rec = [y_test[order[:max(1, int(len(y_test) * k / 100))]].sum() / y_test.sum() for k in ks]
+plt.figure(figsize=(8, 4)); plt.plot(ks, prec, label="precision of flagged"); plt.plot(ks, rec, label="share of anomalies caught")
+plt.axhline(y_test.mean(), color="grey", ls=":", label="chance precision"); plt.xlabel("% of transactions sent to auditors (highest scores first)")
+plt.title("Alert-budget curve: what auditors get for a given workload"); plt.legend(); save_show("04_alert_budget.png")
+print(pd.DataFrame({"flag top %": [1, 2, 5, 10, 20], "precision": [prec[k - 1] for k in (1, 2, 5, 10, 20)],
+                    "recall": [rec[k - 1] for k in (1, 2, 5, 10, 20)]}).round(3).to_string(index=False))
+
+# %% 9. Which anomaly types does it catch or miss? (risk_category is used for EVALUATION only)
+if CATEGORY_COL in test.columns:
+    cat_df = test.assign(_s=s_test, _pred_a=pred, _pred_b=(s_test >= thr_q).astype(int))
+    cat_df = cat_df[cat_df[TARGET] == 1].copy(); cat_df[CATEGORY_COL] = cat_df[CATEGORY_COL].fillna("unknown").astype(str)
+    all_rank = pd.Series(s_test).rank(pct=True).values; cat_df["_rank"] = all_rank[test[TARGET].values == 1]
+    per_cat = (cat_df.groupby(CATEGORY_COL).agg(n=("_s", "size"), recall_thrA=("_pred_a", "mean"), recall_thrB=("_pred_b", "mean"),
+                                                 median_score_percentile=("_rank", "median")).sort_values("recall_thrA"))
+    print(per_cat.round(3).to_string()); per_cat.to_csv(OUTPUT_DIR / "per_risk_category_recall.csv")
+    per_cat["recall_thrA"].plot.barh(figsize=(8, max(3, 0.4 * len(per_cat))), color="#4c78a8")
+    plt.axvline(row["f1thr_recall"], color="k", ls="--", label="overall recall"); plt.xlim(0, 1.02); plt.legend()
+    plt.title("Recall by anomaly type (threshold A)"); save_show("05_recall_by_risk_category.png")
+else:
+    print(f"'{CATEGORY_COL}' not in the CSV: per-type recall skipped.")
+
+# %% 10. Stability across seeds and drift (PSI)
+seed_scores = [rec_["st"][BEST_FAM] for rec_ in store[BEST_KEY]["seeds"]]
+rho = [spearmanr(seed_scores[0], s).correlation for s in seed_scores[1:]]
+def top_k_jaccard(a, b, k=100):
+    A, B = set(np.argsort(-a)[:k]), set(np.argsort(-b)[:k]); return len(A & B) / len(A | B)
+jac = [top_k_jaccard(seed_scores[0], s) for s in seed_scores[1:]]
+print(f"Seed stability (variant {BEST_KEY}, {N_SEEDS} seeds): rank corr vs first seed = {np.round(rho, 3)} | top-100 Jaccard = {np.round(jac, 2)}")
+
+def psi(ref, cur, bins=10, eps=1e-4):
+    ref, cur = np.asarray(ref, float), np.asarray(cur, float); ref, cur = ref[~np.isnan(ref)], cur[~np.isnan(cur)]
+    if len(np.unique(ref)) <= 5:
+        cats = np.union1d(np.unique(ref), np.unique(cur))
+        p, q = np.array([(ref == c).mean() for c in cats]), np.array([(cur == c).mean() for c in cats])
+    else:
+        edges = np.unique(np.quantile(ref, np.linspace(0, 1, bins + 1))); edges[0], edges[-1] = -np.inf, np.inf
+        p, q = np.histogram(ref, edges)[0] / len(ref), np.histogram(cur, edges)[0] / len(cur)
+    p, q = np.clip(p, eps, None), np.clip(q, eps, None); return float(np.sum((q - p) * np.log(q / p)))
+
+feat_psi = pd.Series({c: psi(normal_train[c], normal_test[c]) for c in store[BEST_KEY]["num"]}).sort_values(ascending=False)
+score_psi = psi(s_val[y_val == 0], s_test[y_test == 0])
+feat_psi.head(12)[::-1].plot.barh(figsize=(8, 4.5), color="#f58518"); plt.axvline(0.1, color="grey", ls=":"); plt.axvline(0.2, color="crimson", ls="--")
+plt.title("Input drift: normal train vs normal test (PSI; >0.2 = investigate)"); save_show("06_feature_drift_psi.png")
+print(f"PSI of the anomaly SCORE (normal val -> normal test): {score_psi:.3f}   (<0.1 stable | 0.1-0.2 watch | >0.2 investigate)")
+print("Top drifting inputs:"); print(feat_psi.head(6).round(3).to_string())
+
+# %% 11. Review file with explainable drivers, and saved artifacts
+try:
+    names = list(store[BEST_KEY]["pre"].get_feature_names_out())
+except Exception:
+    names = []
+src_cols = store[BEST_KEY]["num"] + store[BEST_KEY]["cat"]
+def source_of(name):
+    core = name.split("__", 1)[-1].replace("missingindicator_", "")
+    hits = [c for c in src_cols if core == c or core.startswith(c + "_")]
+    return max(hits, key=len) if hits else core
+top_idx = np.argsort(-s_test, kind="stable")[:50]
+fe = bk["ae"].feature_errors(bk["x_test"][top_idx])
+if len(names) == fe.shape[1]:
+    grouped = pd.DataFrame(fe, columns=[source_of(n_) for n_ in names]).T.groupby(level=0).sum().T
+    drivers = [", ".join(grouped.iloc[i].sort_values(ascending=False).index[:3]) for i in range(len(grouped))]
+else:
+    drivers = [""] * len(top_idx)
+keep = [c for c in ["transaction_id", "_event_time", "vendor_id", "employee_id", "amount", TARGET, CATEGORY_COL] if c in test.columns]
+review = test.iloc[top_idx][keep].copy(); review["score"] = s_test[top_idx]; review["flagged_thrA"] = (s_test[top_idx] >= thr_f1).astype(int)
+review["top_drivers"] = drivers; review.to_csv(OUTPUT_DIR / "top50_review_with_drivers.csv", index=False)
+print("Top 15 transactions for audit review (unclipped scores, so the order is meaningful):"); print(review.head(15).to_string(index=False))
+
+bk["ae"].save(OUTPUT_DIR / "autoencoder.pt", {"variant": BEST_KEY, "threshold_f1": thr_f1, "threshold_quantile": thr_q, "family": BEST_FAM})
+joblib.dump(store[BEST_KEY]["pre"], OUTPUT_DIR / "preprocessor.joblib"); joblib.dump(bk["iso"], OUTPUT_DIR / "isolation_forest.joblib")
+joblib.dump(bk["refs"], OUTPUT_DIR / "score_references.joblib")
+(OUTPUT_DIR / "config.json").write_text(json.dumps({"variant": VARIANTS[BEST_KEY]["label"], "family": BEST_FAM, "threshold_f1": thr_f1,
+    "threshold_label_free": thr_q, "numeric_features": store[BEST_KEY]["num"], "categorical_features": store[BEST_KEY]["cat"]}, indent=2))
+print(f"\nSaved figures, CSVs, model and config to: {OUTPUT_DIR.resolve()}")
+print("(joblib preprocessor references clip_scaled(); define the same function before loading it in another session.)")
+
+# %% 12. Scorecard (rules of thumb, not standards)
+def mean_metric(key, fam, col): return float(res[(res.variant == key) & (res.family == fam)][col].mean())
+n_leaky = int(audit["verdict"].str.startswith("LEAKY").sum()) if len(audit) else 0
+ov_best = overfit[overfit["variant"] == VARIANTS[BEST_KEY]["label"]].iloc[0]
+q_alert = float((s_test[y_test == 0] >= thr_q).mean()); nominal = 1 - THRESHOLD_QUANTILE
+gap_id = mean_metric("D", BEST_FAM, "pr_auc") - mean_metric("C", BEST_FAM, "pr_auc") if "D" in VARIANTS else np.nan
+checks = [
+    ("Point-in-time features survive 'corrupt the future' test", "PASS" if leak_ok else "FAIL", "pass", leak_ok),
+    ("CSV aggregate columns that are whole-ledger leaks (not used)", str(n_leaky), "info", True),
+    ("Autoencoder val/train error (eval mode)", f"{ov_best['val/train']:.2f}", "< 1.25", ov_best["val/train"] < 1.25),
+    ("Autoencoder test-normal / val-normal error", f"{ov_best['test-normal / val-normal']:.2f}", "< 1.25", ov_best["test-normal / val-normal"] < 1.25),
+    ("Seed stability, min rank correlation", f"{np.min(rho):.3f}" if rho else "n/a", "> 0.90", (np.min(rho) > 0.9) if rho else True),
+    ("Seed stability, mean top-100 Jaccard", f"{np.mean(jac):.2f}" if jac else "n/a", "> 0.50", (np.mean(jac) > 0.5) if jac else True),
+    ("Label-free alert rate on normal test vs nominal", f"{q_alert:.2%} vs {nominal:.2%}", "0.5x - 2x nominal", nominal / 2 <= q_alert <= nominal * 2),
+    ("Score drift PSI (normal val -> normal test)", f"{score_psi:.3f}", "< 0.20", score_psi < 0.2),
+    ("PR-AUC lift over chance", f"{row['pr_auc'] / y_test.mean():.1f}x", "> 2x", row["pr_auc"] / y_test.mean() > 2),
+    ("Raw IDs add PR-AUC (D minus C): memorization signal", f"{gap_id:+.3f}", "< 0.03", gap_id < 0.03),
+    ("Gap to supervised ceiling (E minus best) in PR-AUC", f"{mean_metric('E', 'Supervised GBM', 'pr_auc') - row['pr_auc']:+.3f}", "info", True),
+]
+card = pd.DataFrame([(a, b, c, "INFO" if c == "info" else ("PASS" if ok else "CHECK")) for a, b, c, ok in checks],
+                    columns=["check", "value", "rule of thumb", "status"])
+print(card.to_string(index=False)); card.to_csv(OUTPUT_DIR / "scorecard.csv", index=False)
+print("\nReminder: is_anomaly is a synthetic benchmark label. These numbers show the pipeline works on a controlled benchmark, not real-world fraud accuracy.")

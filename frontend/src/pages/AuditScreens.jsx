@@ -58,21 +58,21 @@ export default function AuditScreens() {
 
       {/* Tabs Row */}
       <div className="flex gap-2 mb-6 border-b border-glass pb-3">
-        <button 
+        <button
           className={`btn ${activeTab === 'benford' ? 'btn-primary' : 'btn-secondary'} py-2 px-4 text-sm`}
           onClick={() => setActiveTab('benford')}
         >
           <Percent size={16} /> Benford's Law
         </button>
-        
-        <button 
+
+        <button
           className={`btn ${activeTab === 'related' ? 'btn-primary' : 'btn-secondary'} py-2 px-4 text-sm`}
           onClick={() => setActiveTab('related')}
         >
           <Users size={16} /> Related-Party Screening
         </button>
-        
-        <button 
+
+        <button
           className={`btn ${activeTab === 'sod' ? 'btn-primary' : 'btn-secondary'} py-2 px-4 text-sm`}
           onClick={() => setActiveTab('sod')}
         >
@@ -89,7 +89,7 @@ export default function AuditScreens() {
               Benford's Law Screen
             </h3>
             <p className="text-sm text-secondary">
-              Analyzes the frequency of leading digits (1-9) of all transaction amounts. 
+              Analyzes the frequency of leading digits (1-9) of all transaction amounts.
               Naturally occurring transaction amounts follow a logarithmic curve. Anomalous spikes may indicate manual fraud or artificial expense splitting.
             </p>
           </div>
@@ -134,7 +134,7 @@ export default function AuditScreens() {
                     <th>Vendor Name</th>
                     <th>Amount</th>
                     <th>Matched Terms</th>
-                    <th>Fraud Score</th>
+                    <th>Anomaly Index</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -143,7 +143,7 @@ export default function AuditScreens() {
                       <td className="font-semibold text-accent-primary">{rp.claim_id}</td>
                       <td>{rp.employee_name}</td>
                       <td>{rp.vendor_name}</td>
-                      <td>₹{rp.claimed_amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                      <td>₹{rp.claimed_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td>
                         {rp.matched_terms.map((term, i) => (
                           <span key={i} className="badge badge-amber text-xs mr-1">{term}</span>

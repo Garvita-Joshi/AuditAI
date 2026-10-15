@@ -5,6 +5,9 @@ The engine automatically detects which OCR library is available and falls back
 gracefully. A module-level singleton `ocr_engine` is provided for reuse.
 """
 import logging
+import os
+from pathlib import Path
+import shutil
 from typing import Tuple
 
 import numpy as np
@@ -22,12 +25,17 @@ class OcrEngine:
     """
 
     def __init__(self):
+        from backend.app.config import OCR_PRIMARY_ENGINE, TESSERACT_CMD
         self._paddle_ocr = None
         self._paddle_available = False
         self._tesseract_available = False
+        self._rapid_ocr = None
+        self._rapid_attempted = False
 
         # Try to initialize PaddleOCR
         try:
+            if OCR_PRIMARY_ENGINE != 'paddleocr':
+                raise ImportError('PaddleOCR is not the configured primary engine')
             from paddleocr import PaddleOCR
             self._paddle_ocr = PaddleOCR(
                 use_angle_cls=True,
@@ -42,9 +50,17 @@ class OcrEngine:
         # Check if pytesseract is available
         try:
             import pytesseract  # noqa: F401
-            self._tesseract_available = True
-            logger.info("pytesseract available as fallback.")
-        except ImportError:
+            executable = shutil.which(TESSERACT_CMD)
+            candidates = [Path(TESSERACT_CMD), Path(os.getenv('ProgramFiles', 'C:/Program Files')) / 'Tesseract-OCR/tesseract.exe',
+                          Path(os.getenv('LOCALAPPDATA', '')) / 'Programs/Tesseract-OCR/tesseract.exe']
+            executable = executable or next((str(p) for p in candidates if p.is_file()), None)
+            if executable:
+                pytesseract.pytesseract.tesseract_cmd = executable
+                pytesseract.get_tesseract_version()
+                self._tesseract_available = True
+            else:
+                logger.warning('Tesseract executable not found; set TESSERACT_CMD.')
+        except Exception:
             logger.warning("pytesseract not available either.")
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, float, str]:
@@ -61,6 +77,23 @@ class OcrEngine:
         if image is None or image.size == 0:
             return ("", 0.0, "failed")
 
+        # Bundled CPU models: no separate executable or network inference.
+        if not self._rapid_attempted:
+            self._rapid_attempted = True
+            try:
+                from rapidocr_onnxruntime import RapidOCR
+                self._rapid_ocr = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
+            except Exception as exc:
+                logger.warning('RapidOCR unavailable: %s', exc)
+        if self._rapid_ocr is not None:
+            try:
+                result, _ = self._rapid_ocr(image)
+                if result:
+                    return ('\n'.join(str(row[1]) for row in result),
+                            float(np.mean([float(row[2]) for row in result])), 'rapidocr')
+            except Exception as exc:
+                logger.warning('RapidOCR failed: %s', exc)
+
         # Try PaddleOCR first
         if self._paddle_available:
             try:
@@ -75,7 +108,8 @@ class OcrEngine:
         if self._tesseract_available:
             try:
                 text, confidence = self._extract_tesseract(image)
-                return (text, confidence, "tesseract")
+                if text.strip():
+                    return (text, confidence, "tesseract")
             except Exception as e:
                 logger.warning("pytesseract extraction failed: %s", e)
 
@@ -115,10 +149,7 @@ class OcrEngine:
             data = pytesseract.image_to_data(
                 image, output_type=pytesseract.Output.DICT
             )
-            confidences = [
-                int(c) for c in data.get("conf", [])
-                if str(c).isdigit() and int(c) > 0
-            ]
+            confidences = [float(c) for c in data.get("conf", []) if float(c) >= 0]
             avg_confidence = (
                 sum(confidences) / len(confidences) / 100.0
                 if confidences

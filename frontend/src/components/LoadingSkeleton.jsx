@@ -15,7 +15,7 @@ export default function LoadingSkeleton({ type = 'card', count = 1 }) {
             <div className="skeleton h-3 w-32 rounded"></div>
           </div>
         );
-      
+
       case 'table-row':
         return (
           <div className="flex gap-4 p-4 border-b border-glass">
@@ -36,7 +36,7 @@ export default function LoadingSkeleton({ type = 'card', count = 1 }) {
             <div className="skeleton h-4 w-2/3 rounded"></div>
           </div>
         );
-        
+
       default:
         return <div className="skeleton h-12 w-full rounded"></div>;
     }

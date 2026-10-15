@@ -1,29 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Shield, Clock, FileText, ClipboardList } from 'lucide-react';
-import { claimsApi, casesApi } from '../api/client';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { ArrowLeft, Check, X, Shield, Clock, FileText, ClipboardList, Info } from 'lucide-react';
+import { claimsApi, casesApi, reportsApi } from '../api/client';
 import ScoreGauge from '../components/ScoreGauge';
 import ShapChart from '../components/ShapChart';
+import ReviewEvidence from '../components/ReviewEvidence';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import { useAuth } from '../auth/AuthContext';
 
 export default function ClaimDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  
+  const location = useLocation();
+  const claimsReturnTo = location.state?.claimsReturnTo || '/claims';
+  const { user } = useAuth();
+
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [auditTrail, setAuditTrail] = useState([]);
-  
+
   // Case Action Fields
-  const [role, setRole] = useState('maker'); // 'maker' or 'checker' (mock user switcher)
+  const [role, setRole] = useState('maker');
   const [notes, setNotes] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportError, setReportError] = useState('');
 
   const fetchDetail = async () => {
     try {
       const response = await claimsApi.getDetail(id);
       setData(response.data);
-      
+
       // Fetch case audit trail
       const trailResponse = await casesApi.getTrail(id);
       setAuditTrail(trailResponse.data);
@@ -38,6 +45,11 @@ export default function ClaimDetail() {
     fetchDetail();
   }, [id]);
 
+  const reviewerRoles = ['maker', 'checker'].filter(candidate => user?.roles?.includes(candidate));
+  useEffect(() => {
+    if (reviewerRoles.length && !reviewerRoles.includes(role)) setRole(reviewerRoles[0]);
+  }, [user, role]);
+
   const handleCaseAction = async (actionType) => {
     if (!notes || notes.length < 5) {
       alert("Please provide explanatory notes (minimum 5 characters).");
@@ -46,9 +58,9 @@ export default function ClaimDetail() {
     setSubmittingAction(true);
     try {
       if (role === 'maker') {
-        await casesApi.makerRecommend(id, actionType, notes, "Auditor (Maker)");
+        await casesApi.makerRecommend(id, actionType, notes);
       } else {
-        await casesApi.checkerSignoff(id, actionType, notes, "Manager (Checker)");
+        await casesApi.checkerSignoff(id, actionType, notes);
       }
       setNotes('');
       await fetchDetail(); // refresh data & timeline
@@ -57,6 +69,19 @@ export default function ClaimDetail() {
       alert(error.response?.data?.detail || "Action failed.");
     } finally {
       setSubmittingAction(false);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    setGeneratingReport(true);
+    setReportError('');
+    try {
+      await reportsApi.generate(id);
+      await fetchDetail();
+    } catch (error) {
+      setReportError(error.response?.data?.detail || 'The report could not be generated. Please try again.');
+    } finally {
+      setGeneratingReport(false);
     }
   };
 
@@ -72,49 +97,63 @@ export default function ClaimDetail() {
     return (
       <div className="main-content text-center py-20">
         <h2 className="text-2xl mb-4">Claim Not Found</h2>
-        <button className="btn btn-secondary" onClick={() => navigate('/claims')}>Back to Claims</button>
+        <button className="btn btn-secondary" onClick={() => navigate(claimsReturnTo)}>Back to Claims</button>
       </div>
     );
   }
 
-  const { claim, ocr_result, prediction, audit_report } = data;
+  const { claim, ocr_result, prediction, audit_report, review_permissions, case_review } = data;
+  const reviewBlockReason = role === 'checker' ? review_permissions?.checker_block_reason : review_permissions?.maker_block_reason;
+  const canReview = reviewerRoles.includes(role) && !reviewBlockReason;
+  const anomalyScore = prediction?.combined_fraud_score !== null && prediction?.combined_fraud_score !== undefined
+    ? Math.round(prediction.combined_fraud_score * 100)
+    : null;
+  const scoreInterpretation = anomalyScore === null
+    ? 'Waiting for a model score'
+    : Number(prediction?.feature_values?._holiday_policy_flag || 0) >= 0.5 && anomalyScore < 50
+      ? 'Holiday policy review required — the model score is below its review band'
+    : anomalyScore >= 65
+      ? 'High anomaly signal — investigate the evidence below'
+      : anomalyScore >= 50
+        ? 'Review recommended — the claim crossed the review threshold'
+      : 'Lower anomaly signal — no automatic review flag';
+  const holidayPolicyFlag = Number(prediction?.feature_values?._holiday_policy_flag || 0) >= 0.5;
+  const noReviewNeeded = claim.status === 'scored' && !prediction?.is_flagged && !holidayPolicyFlag;
+  const timeKnown = Number(prediction?.feature_values?._event_time_known || 0) >= 0.5;
+  const visibleShapValues = timeKnown ? prediction?.shap_values : Object.fromEntries(
+    Object.entries(prediction?.shap_values || {}).filter(([feature]) => !['hour', 'is_after_hours'].includes(feature))
+  );
 
   return (
     <div className="main-content">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-4">
-          <button className="text-secondary hover:text-primary" onClick={() => navigate('/claims')}>
+          <button className="text-secondary hover:text-primary" onClick={() => navigate(claimsReturnTo)}>
             <ArrowLeft size={24} />
           </button>
           <div className="flex flex-col">
             <span className="text-xs text-muted font-medium">APAC Entity · INR</span>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">{claim.claim_id}</h1>
-              <span className={`badge ${
-                claim.status === 'approved' ? 'badge-green' : 
-                claim.status === 'flagged' || claim.status === 'rejected' ? 'badge-red' : 
-                claim.status === 'scored' ? 'badge-blue' : 'badge-amber'
-              }`}>{claim.status.toUpperCase()}</span>
+              <span className={`badge ${claim.status === 'approved' ? 'badge-green' :
+                  claim.status === 'flagged' || claim.status === 'rejected' ? 'badge-red' :
+                    claim.status === 'scored' ? 'badge-blue' : 'badge-amber'
+                }`}>{claim.status.toUpperCase()}</span>
             </div>
           </div>
         </div>
-        
-        {/* Mock Role Switcher */}
-        <div className="flex items-center gap-2 glass-card" style={{ padding: '8px 16px', borderRadius: '12px' }}>
-          <span className="text-xs text-muted uppercase font-semibold">Active Reviewer Role:</span>
-          <select 
-            className="input py-1 px-2 text-xs font-semibold"
-            value={role}
-            onChange={e => setRole(e.target.value)}
-            style={{ width: 100, background: 'none', border: '1px solid rgba(255,255,255,0.1)' }}
-          >
-            <option value="maker">Maker</option>
-            <option value="checker">Checker</option>
-          </select>
-        </div>
+
+        {reviewerRoles.length > 0 && <div className="flex items-center gap-2 glass-card" style={{ padding: '8px 16px', borderRadius: '12px' }}>
+          <span className="text-xs text-muted uppercase font-semibold">Reviewing as:</span>
+          {reviewerRoles.length === 1 ? <strong className="text-sm">{reviewerRoles[0]}</strong> : (
+            <select className="input py-1 px-2 text-xs font-semibold" value={role} onChange={e => setRole(e.target.value)} style={{ width: 100 }}>
+              {reviewerRoles.map(assignedRole => <option key={assignedRole} value={assignedRole}>{assignedRole}</option>)}
+            </select>
+          )}
+        </div>}
       </div>
-      
+
       {/* Top Grid: Metadata, OCR, Risk Gauges */}
       <div className="grid-cols-3 mb-6">
         {/* Left: Metadata */}
@@ -130,9 +169,9 @@ export default function ClaimDetail() {
               <span className="font-medium flex items-center gap-2">
                 {claim.vendor_name}
                 {claim.closest_vendor_match && (
-                  <span 
+                  <span
                     className="badge badge-amber text-xs flex items-center gap-1 cursor-help"
-                    title={`⚠ ${Math.round(claim.vendor_similarity_score * 100)}% match to '${claim.closest_vendor_match}' — possible typosquat`}
+                    title={`Name resembles '${claim.closest_vendor_match}' (${Math.round(claim.vendor_similarity_score * 100)}% similarity); verify the vendor identity`}
                   >
                     ⚠ Typo
                   </span>
@@ -141,12 +180,12 @@ export default function ClaimDetail() {
             </div>
             {claim.closest_vendor_match && (
               <div className="bg-status-warning/10 border border-status-warning/30 rounded p-2 text-xs text-secondary mt-1">
-                ⚠️ Typosquat Alert: Similarity score is {Math.round(claim.vendor_similarity_score * 100)}% compared to known vendor <strong>{claim.closest_vendor_match}</strong>.
+                ⚠️ Possible vendor name typo: {Math.round(claim.vendor_similarity_score * 100)}% similarity to <strong>{claim.closest_vendor_match}</strong>. Confirm the vendor identity; this name check is separate from the anomaly score.
               </div>
             )}
             <div className="flex justify-between border-b border-glass pb-2">
               <span className="text-secondary">Amount</span>
-              <span className="font-medium text-lg">₹{claim.claimed_amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+              <span className="font-medium text-lg">₹{claim.claimed_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="flex justify-between border-b border-glass pb-2">
               <span className="text-secondary">Date</span>
@@ -158,7 +197,7 @@ export default function ClaimDetail() {
             </div>
           </div>
         </div>
-        
+
         {/* Center: OCR */}
         <div className="glass-card">
           <h3 className="text-lg font-semibold mb-4 text-accent-primary">OCR Extraction</h3>
@@ -191,7 +230,7 @@ export default function ClaimDetail() {
             </div>
           )}
         </div>
-        
+
         {/* Right: Scores */}
         <div className="glass-card flex flex-col justify-center">
           <h3 className="text-lg font-semibold mb-2 text-center text-accent-primary">Fraud Risk Assessment</h3>
@@ -200,31 +239,72 @@ export default function ClaimDetail() {
           ) : (
             <>
               <div className="flex justify-center mb-6">
-                <ScoreGauge label="Combined Score" score={prediction.combined_fraud_score} size={180} />
+                <ScoreGauge label="Anomaly index (0–100)" score={prediction.combined_fraud_score} size={180} />
               </div>
               <div className="flex justify-around">
                 <div className="text-center">
                   <div className="text-xs text-secondary uppercase mb-1">Reconstruction Err</div>
-                  <div className="font-bold">{(prediction.reconstruction_error * 100).toFixed(1)}%</div>
+                  <div className="font-bold">{prediction.reconstruction_error?.toFixed(4)}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-xs text-secondary uppercase mb-1">Isolation Forest</div>
-                  <div className="font-bold">{(prediction.isolation_forest_score * 100).toFixed(1)}%</div>
+                  <div className="font-bold">{prediction.isolation_forest_score?.toFixed(4)}</div>
+                </div>
+              </div>
+              <div className="risk-explanation">
+                <div className="risk-explanation-heading">
+                  <Info size={16} />
+                  <span>How to read this score</span>
+                </div>
+                <p className="risk-explanation-lead">{scoreInterpretation}</p>
+                {holidayPolicyFlag && (
+                  <div className="risk-policy-alert">
+                    <strong>Holiday receipt policy exception</strong>
+                    <span>This claim is dated {claim.claimed_date}, which is on the configured holiday calendar. Receipts added on holidays require auditor confirmation under your policy.</span>
+                  </div>
+                )}
+                <p>
+                  This is an <strong>anomaly index</strong>: it measures how unusual the claim looks compared with patterns in the historical data.
+                  A score of <strong>{anomalyScore ?? '—'}/100 does not mean a {anomalyScore ?? '—'}% chance of fraud</strong>.
+                  It is a signal for an auditor to review, not a final fraud decision.
+                </p>
+                {Number(prediction.feature_values?._supervised_score || 0) >= 0.5 && (
+                  <p>The active classifier produced this index from the claim’s combined features. A low-signal claim can still have a non-zero index; zero is not the default. Reconstruction error and Isolation Forest are supporting diagnostics, not direct explanations of the 0–100 index.</p>
+                )}
+                <div className="risk-signal-grid">
+                  <div>
+                    <strong>Reconstruction error</strong>
+                    <span>How poorly the claim fits the model’s learned “normal claim” pattern.</span>
+                  </div>
+                  <div>
+                    <strong>Isolation Forest</strong>
+                    <span>How quickly this claim can be separated from other claims as unusual.</span>
+                  </div>
+                </div>
+                <div className="risk-thresholds">
+                  <span><b>0–49</b> lower signal</span>
+                  <span><b>50–64</b> review</span>
+                  <span><b>65–100</b> high anomaly signal</span>
                 </div>
               </div>
             </>
           )}
         </div>
       </div>
-      
+
       {/* SHAP explainability */}
       <div className="grid-cols-3 mb-6">
         <div className="col-span-2 h-[380px]" style={{ gridColumn: 'span 2' }}>
-          {prediction?.shap_values ? (
-            <ShapChart shapValues={prediction.shap_values} maxFeatures={6} />
-          ) : (
+          {Object.keys(visibleShapValues || {}).length > 0 ? (
+              <ShapChart
+                shapValues={visibleShapValues}
+                featureValues={prediction.feature_values || {}}
+                maxFeatures={6}
+                supervised={Boolean(prediction.feature_values?._supervised_score)}
+              />
+          ) : prediction ? <ReviewEvidence prediction={prediction} /> : (
             <div className="glass-card flex items-center justify-center h-full">
-              <p className="text-secondary">SHAP explainability not available.</p>
+              <p className="text-secondary text-center px-6">This claim has not been scored yet.</p>
             </div>
           )}
         </div>
@@ -236,52 +316,56 @@ export default function ClaimDetail() {
               <Shield size={20} />
               Case Review
             </h3>
-            
+
             <div className="text-xs text-secondary mb-4">
               <strong>Status:</strong> <span className="badge badge-gray text-xs">{claim.case_status?.replace(/_/g, ' ')}</span>
             </div>
 
-            {/* Display Maker Recommendation to Checker */}
-            {role === 'checker' && claim.case_status?.startsWith('maker_recommended') && (
+            {/* The checker sees the authenticated maker's recommendation. */}
+            {role === 'checker' && case_review?.maker_recommendation && (
               <div className="bg-bg-surface border border-border-light rounded p-3 mb-4 text-xs">
-                <div className="font-semibold text-accent-primary mb-1">Maker Recommendation:</div>
-                <div className="text-secondary italic mb-2">"{data.claim.maker_notes || 'No comments left.'}"</div>
-                <div>Recommended: <strong>{claim.case_status === 'maker_recommended_approve' ? 'APPROVE' : 'REJECT'}</strong></div>
+                <div className="font-semibold text-accent-primary mb-1">Maker recommendation{case_review.maker_name ? ` · ${case_review.maker_name}` : ''}</div>
+                <div className="text-secondary italic mb-2">"{case_review.maker_notes || 'No comments left.'}"</div>
+                <div>Recommended: <strong>{case_review.maker_recommendation.toUpperCase()}</strong></div>
               </div>
             )}
 
-            <div className="mb-4">
+            {noReviewNeeded
+              ? <p className="review-block-message" role="status">This claim was scored below the review threshold. No maker-checker case is needed.</p>
+              : reviewBlockReason && <p className="review-block-message" role="status">{reviewBlockReason}</p>}
+
+            {canReview && <div className="mb-4">
               <label className="text-xs text-secondary mb-1 block">Reviewer Notes / Justification</label>
-              <textarea 
-                className="input text-xs" 
+              <textarea
+                className="input text-xs"
                 rows="4"
                 placeholder={`Provide audit commentary justifying your decision...`}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 style={{ resize: 'none' }}
               />
-            </div>
+            </div>}
           </div>
 
-          <div className="flex gap-2">
-            <button 
+          {canReview && <div className="flex gap-2">
+            <button
               className="btn btn-success flex-1 py-2 text-xs"
               onClick={() => handleCaseAction('approve')}
               disabled={submittingAction}
             >
-              <Check size={14} /> Recommend Approve
+              <Check size={14} /> {role === 'maker' ? 'Recommend Approve' : 'Approve'}
             </button>
-            <button 
+            <button
               className="btn btn-danger flex-1 py-2 text-xs"
               onClick={() => handleCaseAction('reject')}
               disabled={submittingAction}
             >
-              <X size={14} /> Recommend Reject
+              <X size={14} /> {role === 'maker' ? 'Recommend Reject' : 'Reject'}
             </button>
-          </div>
+          </div>}
         </div>
       </div>
-      
+
       {/* Audit Report and Case Audit Trail Timeline */}
       <div className="grid-cols-2 mb-6">
         {/* Left: AI Audit Report */}
@@ -290,7 +374,7 @@ export default function ClaimDetail() {
             <FileText className="text-accent-primary" />
             AI Audit Report Summary
           </h3>
-          
+
           {audit_report ? (
             <div className="bg-bg-surface p-6 rounded-lg border border-border-light relative overflow-hidden h-[240px] overflow-y-auto">
               <div className="absolute top-0 left-0 w-1 h-full bg-accent-primary"></div>
@@ -300,8 +384,18 @@ export default function ClaimDetail() {
               </div>
             </div>
           ) : (
-            <div className="bg-bg-surface p-6 rounded-lg border border-border-light text-center h-[240px] flex items-center justify-center">
-              <p className="text-secondary italic">Audit reports are only generated for flagged claims.</p>
+            <div className="bg-bg-surface p-6 rounded-lg border border-border-light text-center h-[240px] flex flex-col items-center justify-center gap-3">
+              <p className="text-secondary italic">
+                {claim.status === 'flagged' || claim.status === 'rejected'
+                  ? 'No audit report has been generated for this claim yet.'
+                  : 'Audit reports can be generated for flagged or rejected claims.'}
+              </p>
+              {(claim.status === 'flagged' || claim.status === 'rejected') && reviewerRoles.length > 0 && !review_permissions?.is_own_claim && (
+                <button className="btn btn-secondary" onClick={handleGenerateReport} disabled={generatingReport}>
+                  {generatingReport ? 'Generating report…' : 'Generate audit report'}
+                </button>
+              )}
+              {reportError && <p className="text-status-danger text-xs" role="alert">{reportError}</p>}
             </div>
           )}
         </div>
@@ -312,7 +406,7 @@ export default function ClaimDetail() {
             <ClipboardList className="text-accent-primary" />
             Audit Case Timeline
           </h3>
-          
+
           <div className="bg-bg-surface p-4 rounded-lg border border-border-light h-[240px] overflow-y-auto">
             {auditTrail.length === 0 ? (
               <p className="text-secondary text-center italic py-10">No investigation timeline logged.</p>

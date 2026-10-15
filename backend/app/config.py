@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # === Paths ===
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # AuditAI/
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # AuditAI/
 BACKEND_ROOT = PROJECT_ROOT / "backend"
 DATA_DIR = PROJECT_ROOT / "data"
 RECEIPTS_DIR = DATA_DIR / "receipts"
@@ -31,8 +31,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 # === OCR ===
-# Primary OCR engine: "paddleocr" or "tesseract"
-OCR_PRIMARY_ENGINE = os.getenv("OCR_PRIMARY_ENGINE", "paddleocr")
+# Bundled CPU OCR with optional PaddleOCR/Tesseract fallbacks.
+OCR_PRIMARY_ENGINE = os.getenv("OCR_PRIMARY_ENGINE", "rapidocr")
 TESSERACT_CMD = os.getenv("TESSERACT_CMD", "tesseract")  # Path to tesseract binary
 
 # === ML Pipeline ===
@@ -41,18 +41,22 @@ AE_LATENT_DIM = int(os.getenv("AE_LATENT_DIM", "16"))
 AE_EPOCHS = int(os.getenv("AE_EPOCHS", "100"))
 AE_LEARNING_RATE = float(os.getenv("AE_LEARNING_RATE", "0.001"))
 AE_BATCH_SIZE = int(os.getenv("AE_BATCH_SIZE", "64"))
+AE_PATIENCE = int(os.getenv("AE_PATIENCE", "12"))
+AE_WEIGHT_DECAY = float(os.getenv("AE_WEIGHT_DECAY", "0.00001"))
+ML_SEED = int(os.getenv("ML_SEED", "42"))
+ML_CLIP = 8.0
+NORMAL_SCORE_QUANTILE = 0.99
+OCR_MIN_CONFIDENCE = float(os.getenv("OCR_MIN_CONFIDENCE", "0.6"))
 
 # Isolation Forest hyperparameters
 IF_CONTAMINATION = float(os.getenv("IF_CONTAMINATION", "0.07"))
-IF_N_ESTIMATORS = int(os.getenv("IF_N_ESTIMATORS", "200"))
+IF_N_ESTIMATORS = int(os.getenv("IF_N_ESTIMATORS", "300"))
 IF_RANDOM_STATE = int(os.getenv("IF_RANDOM_STATE", "42"))
 
 # Scoring combination weights
 # final_score = SCORE_ALPHA * reconstruction_error + (1 - SCORE_ALPHA) * isolation_forest_score
-# Alpha is set lower (0.4) because the Isolation Forest already operates on the
-# reconstructed feature space, so it implicitly captures reconstruction quality.
-# The reconstruction error adds a direct signal for gross distortions.
-SCORE_ALPHA = float(os.getenv("SCORE_ALPHA", "0.4"))
+# Independent AE and IF scores calibrated on held-out normal claims.
+SCORE_ALPHA = float(os.getenv("SCORE_ALPHA", "0.5"))
 FRAUD_SCORE_THRESHOLD = float(os.getenv("FRAUD_SCORE_THRESHOLD", "0.60"))
 
 # === Feature Engineering ===

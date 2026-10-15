@@ -2,7 +2,7 @@ import React from 'react';
 
 export default function ScoreGauge({ label, score, size = 160 }) {
   const percentage = score !== undefined && score !== null ? Math.round(score * 100) : null;
-  
+
   // Color logic
   let color = 'var(--status-success)';
   if (percentage >= 65) color = 'var(--status-danger)';
@@ -11,8 +11,8 @@ export default function ScoreGauge({ label, score, size = 160 }) {
   const strokeWidth = 12;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * Math.PI; // Semi-circle
-  const strokeDashoffset = percentage !== null 
-    ? circumference - (percentage / 100) * circumference 
+  const strokeDashoffset = percentage !== null
+    ? circumference - (percentage / 100) * circumference
     : circumference;
 
   return (
@@ -21,7 +21,7 @@ export default function ScoreGauge({ label, score, size = 160 }) {
         <svg width={size} height={size / 2} style={{ transform: 'rotate(180deg)' }}>
           {/* Background Arc */}
           <path
-            d={`M ${strokeWidth/2} ${size/2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth/2} ${size/2}`}
+            d={`M ${strokeWidth / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth / 2} ${size / 2}`}
             fill="none"
             stroke="var(--border-light)"
             strokeWidth={strokeWidth}
@@ -30,7 +30,7 @@ export default function ScoreGauge({ label, score, size = 160 }) {
           {/* Value Arc */}
           {percentage !== null && (
             <path
-              d={`M ${strokeWidth/2} ${size/2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth/2} ${size/2}`}
+              d={`M ${strokeWidth / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth / 2} ${size / 2}`}
               fill="none"
               stroke={color}
               strokeWidth={strokeWidth}
@@ -41,12 +41,12 @@ export default function ScoreGauge({ label, score, size = 160 }) {
             />
           )}
         </svg>
-        <div 
-          className="absolute text-center" 
+        <div
+          className="absolute text-center"
           style={{ bottom: 0, left: 0, right: 0 }}
         >
           {percentage !== null ? (
-            <div className="text-3xl font-bold" style={{ color }}>{percentage}%</div>
+            <div className="text-3xl font-bold" style={{ color }}>{percentage}/100</div>
           ) : (
             <div className="text-xl font-bold text-muted">N/A</div>
           )}

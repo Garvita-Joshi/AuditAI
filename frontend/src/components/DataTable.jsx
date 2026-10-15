@@ -41,7 +41,7 @@ export default function DataTable({ columns, data, onRowClick, sortBy, sortOrder
         <thead>
           <tr>
             {columns.map(col => (
-              <th 
+              <th
                 key={col.key}
                 onClick={() => col.sortable && onSort && onSort(col.key)}
                 style={{ cursor: col.sortable ? 'pointer' : 'default' }}
@@ -58,8 +58,8 @@ export default function DataTable({ columns, data, onRowClick, sortBy, sortOrder
         </thead>
         <tbody>
           {data.map((row, idx) => (
-            <tr 
-              key={row.id || idx} 
+            <tr
+              key={row.id || idx}
               onClick={() => onRowClick && onRowClick(row)}
               style={{ cursor: onRowClick ? 'pointer' : 'default' }}
             >
