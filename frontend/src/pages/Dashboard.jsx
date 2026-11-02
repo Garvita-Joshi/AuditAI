@@ -4,13 +4,16 @@ import { FileText, AlertTriangle, Percent, Activity, Clock, ShieldAlert, CheckSq
 import { useNavigate } from 'react-router-dom';
 import { fraudApi } from '../api/client';
 import StatCard from '../components/StatCard';
+import DetectionOverview from '../components/DetectionOverview';
 import ScoreBadge from '../components/ScoreBadge';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import ExplainabilityPanel from '../components/ExplainabilityPanel';
+import { useAuditProfile } from '../context/AuditProfileContext';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { profile, companyName, currency } = useAuditProfile();
 
   // Table Filters
   const [statusFilter, setStatusFilter] = useState('all');
@@ -84,16 +87,26 @@ export default function Dashboard() {
   return (
     <div className="main-content">
       {/* Entity Context Breadcrumbs */}
-      <div className="flex items-center gap-2 text-sm text-muted mb-2">
-        <span>Global Auditing</span>
-        <span>/</span>
-        <span className="text-secondary font-medium">APAC Entity · INR</span>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <span>Global Auditing</span>
+          <span>/</span>
+          <span className="text-secondary font-medium">{companyName} · {currency}</span>
+        </div>
+        <span
+          className="badge text-xs"
+          style={{ background: `${profile.color}20`, color: profile.color, border: `1px solid ${profile.color}40` }}
+        >
+          {profile.name}
+        </span>
       </div>
 
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Audit Dashboard</h1>
       </div>
 
+      <DetectionOverview/>
+      <h2>Expense model and policy results</h2>
       {/* Case Cycle KPI Row */}
       <div className="grid-cols-3 mb-6">
         <div className="glass-card flex items-center gap-4" style={{ padding: '16px 24px' }}>
@@ -162,7 +175,7 @@ export default function Dashboard() {
       <ExplainabilityPanel
         claims={data.recent_flagged}
         reasonBreakdown={data.explainability?.reason_breakdown || []}
-        threshold={(data.explainability?.display_threshold ?? 0.5) * 100}
+        threshold={null}
       />
 
       <div className="grid-cols-2 mb-6">
