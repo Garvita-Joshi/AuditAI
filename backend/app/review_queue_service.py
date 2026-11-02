@@ -16,41 +16,135 @@ def freeze(value): return json.loads(json.dumps(jsonable_encoder(value,custom_en
 
 def adopt_existing(db):
     """Add queue identities without moving/deleting native cases or audit trails."""
-    existing={r.source_key:r for r in db.query(ReviewRecord).options(load_only(ReviewRecord.id,ReviewRecord.source_key,ReviewRecord.status)).filter(ReviewRecord.case_type.in_(['expense_claim','circular_payment'])).all()}
-    policies={p.claim_id:p for p in db.query(ClaimPolicy).all()}
-    added=0
+    existing = {
+        r.source_key: r
+        for r in db.query(ReviewRecord)
+        .options(load_only(ReviewRecord.id, ReviewRecord.source_key, ReviewRecord.status))
+        .filter(ReviewRecord.case_type.in_(['expense_claim', 'circular_payment']))
+        .all()
+    }
+    added = 0
+    new_cases = []
     for case in db.query(Case).options(lazyload("*")).all():
-        key=f'expense:{case.id}'
-        if key in existing:
-            existing[key].status=case.status; continue
-        claim=case.claim
-        if claim is None: continue
-        prediction=claim.prediction; ocr=claim.receipt.ocr_result if claim.receipt else None
-        score=float(prediction.combined_fraud_score or 0) if prediction else None
-        evidence=dict(claim=dict(claim_id=claim.claim_id,employee_id=claim.employee_id,employee_name=claim.employee_name,vendor_name=claim.vendor_name,claimed_amount=str(claim.claimed_amount),claimed_date=str(claim.claimed_date),description=claim.description),
-            receipt=dict(receipt_id=claim.receipt.receipt_id,upload_status=claim.receipt.upload_status,extracted_amount=str(ocr.extracted_amount) if ocr and ocr.extracted_amount is not None else None,raw_text=ocr.raw_ocr_text if ocr else None) if claim.receipt else None,
-            prediction=dict(score=score,feature_values=prediction.feature_values,shap_values=prediction.shap_values) if prediction else None,
-            snapshot_note='Evidence captured when this existing case entered the shared queue; original case history is retained.',native_created_at=case.created_at.isoformat()+'Z')
-        evidence['payments'] = [dict(transaction_id=t.transaction_id, sender_account=t.sender_account, receiver_account=t.receiver_account, amount=str(t.amount), currency=t.currency, timestamp=t.timestamp.isoformat()+'Z', claim_id=t.claim_id) for t in db.query(BankTransfer).filter_by(claim_id=claim.claim_id).all()]
-        reason='Expense claim requires review'
-        if prediction and (prediction.feature_values or {}).get('_holiday_policy_flag'): reason='Holiday policy requires expense review'
-        policy=policies.get(claim.claim_id)
-        if policy and policy.result:
-            evidence['policy']=policy.result
-            related_ids = {cid for check in policy.result.get('checks', []) if check.get('status') == 'review' for cid in check.get('related_claims', [])}
-            evidence['supporting_claims'] = [dict(claim_id=c.claim_id, employee_id=c.employee_id, employee_name=c.employee_name, vendor_name=c.vendor_name, claimed_amount=str(c.claimed_amount), claimed_date=str(c.claimed_date), description=c.description) for c in db.query(ExpenseClaim).filter(ExpenseClaim.claim_id.in_(related_ids)).all()]
-            evidence['trigger_fields'] = sorted({field for check in policy.result.get('checks', []) if check.get('status') == 'review' for field in check.get('fields', [])})
-            triggers=[c['code'].replace('_',' ') for c in policy.result['checks'] if c['status']=='review']
-            if triggers: reason='Policy review: '+', '.join(triggers[:4])
-        db.add(ReviewRecord(source_key=key,source_id=case.id,case_type='expense_claim',severity='high' if score is not None and score>=.7 else 'medium',reason=reason,evidence=freeze(evidence),related_records=[dict(kind='claim',id=claim.claim_id)],status=case.status))
-        added+=1
+        key = f'expense:{case.id}'
+        rec = existing.get(key)
+        if rec:
+            if rec.status != case.status:
+                rec.status = case.status
+            continue
+        new_cases.append(case)
+
+    if new_cases:
+        policies = {p.claim_id: p for p in db.query(ClaimPolicy).all()}
+        for case in new_cases:
+            claim = case.claim
+            if claim is None: continue
+            prediction = claim.prediction; ocr = claim.receipt.ocr_result if claim.receipt else None
+            score = float(prediction.combined_fraud_score or 0) if prediction else None
+            evidence = dict(
+                claim=dict(
+                    claim_id=claim.claim_id,
+                    employee_id=claim.employee_id,
+                    employee_name=claim.employee_name,
+                    vendor_name=claim.vendor_name,
+                    claimed_amount=str(claim.claimed_amount),
+                    claimed_date=str(claim.claimed_date),
+                    description=claim.description,
+                ),
+                receipt=dict(
+                    receipt_id=claim.receipt.receipt_id,
+                    upload_status=claim.receipt.upload_status,
+                    extracted_amount=str(ocr.extracted_amount) if ocr and ocr.extracted_amount is not None else None,
+                    raw_text=ocr.raw_ocr_text if ocr else None,
+                ) if claim.receipt else None,
+                prediction=dict(
+                    score=score,
+                    feature_values=prediction.feature_values,
+                    shap_values=prediction.shap_values,
+                ) if prediction else None,
+                snapshot_note='Evidence captured when this existing case entered the shared queue; original case history is retained.',
+                native_created_at=case.created_at.isoformat() + 'Z',
+            )
+            evidence['payments'] = [
+                dict(
+                    transaction_id=t.transaction_id,
+                    sender_account=t.sender_account,
+                    receiver_account=t.receiver_account,
+                    amount=str(t.amount),
+                    currency=t.currency,
+                    timestamp=t.timestamp.isoformat() + 'Z',
+                    claim_id=t.claim_id,
+                )
+                for t in db.query(BankTransfer).filter_by(claim_id=claim.claim_id).all()
+            ]
+            reason = 'Expense claim requires review'
+            if prediction and (prediction.feature_values or {}).get('_holiday_policy_flag'):
+                reason = 'Holiday policy requires expense review'
+            policy = policies.get(claim.claim_id)
+            if policy and policy.result:
+                evidence['policy'] = policy.result
+                related_ids = {
+                    cid
+                    for check in policy.result.get('checks', [])
+                    if check.get('status') == 'review'
+                    for cid in check.get('related_claims', [])
+                }
+                evidence['supporting_claims'] = [
+                    dict(
+                        claim_id=c.claim_id,
+                        employee_id=c.employee_id,
+                        employee_name=c.employee_name,
+                        vendor_name=c.vendor_name,
+                        claimed_amount=str(c.claimed_amount),
+                        claimed_date=str(c.claimed_date),
+                        description=c.description,
+                    )
+                    for c in db.query(ExpenseClaim).filter(ExpenseClaim.claim_id.in_(related_ids)).all()
+                ]
+                evidence['trigger_fields'] = sorted({
+                    field
+                    for check in policy.result.get('checks', [])
+                    if check.get('status') == 'review'
+                    for field in check.get('fields', [])
+                })
+                triggers = [c['code'].replace('_', ' ') for c in policy.result['checks'] if c['status'] == 'review']
+                if triggers:
+                    reason = 'Policy review: ' + ', '.join(triggers[:4])
+            db.add(
+                ReviewRecord(
+                    source_key=f'expense:{case.id}',
+                    source_id=case.id,
+                    case_type='expense_claim',
+                    severity='high' if score is not None and score >= 0.7 else 'medium',
+                    reason=reason,
+                    evidence=freeze(evidence),
+                    related_records=[dict(kind='claim', id=claim.claim_id)],
+                    status=case.status,
+                )
+            )
+            added += 1
+
     for case in db.query(CycleReviewCase).all():
-        key=f'circular:{case.id}'
-        if key in existing:
-            existing[key].status=case.status; continue
-        e=case.evidence
-        db.add(ReviewRecord(source_key=key,source_id=case.id,case_type='circular_payment',severity='high',reason=f"{len(e['transaction_ids'])}-transfer loop; {e['return_ratio']:.0%} returned",evidence=freeze(e),related_records=[],status=case.status))
-        added+=1
+        key = f'circular:{case.id}'
+        rec = existing.get(key)
+        if rec:
+            if rec.status != case.status:
+                rec.status = case.status
+            continue
+        e = case.evidence
+        db.add(
+            ReviewRecord(
+                source_key=key,
+                source_id=case.id,
+                case_type='circular_payment',
+                severity='high',
+                reason=f"{len(e['transaction_ids'])}-transfer loop; {e['return_ratio']:.0%} returned",
+                evidence=freeze(e),
+                related_records=[],
+                status=case.status,
+            )
+        )
+        added += 1
     db.flush()
     return added
 
