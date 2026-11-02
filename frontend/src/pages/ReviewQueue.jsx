@@ -14,17 +14,35 @@ export default function ReviewQueue() {
   const setFilter=(key,value)=>setParams(previous=>{const next=new URLSearchParams(previous);next.delete('case');next.delete('offset');if(value)next.set(key,value);else next.delete(key);return next;});
   const caseUrl=useCallback(id=>{const filters=new URLSearchParams(params);filters.delete('case');return `/review/cases/${id}?${new URLSearchParams({returnTo:'/review-queue'+(filters.toString()?'?'+filters.toString():'')})}`;},[params]);
   useEffect(()=>{if(params.get('case'))navigate(caseUrl(params.get('case')),{replace:true});},[params,navigate,caseUrl]);
-  useEffect(()=>{
-    let active=true;
-    setBusy(true);setError('');
-    (async()=>{try {
-      await reviewQueueApi.sync();
-      const response=await reviewQueueApi.list({case_type:type||undefined,status:status||undefined,severity:severity||undefined,offset,limit:50});
-      if(active)setData(response.data);
-    } catch(e){if(active)setError(e.response?.data?.detail||'Could not load the shared queue.');}
-    finally{if(active)setBusy(false);}})();
-    return ()=>{active=false;};
-  },[type,status,severity,offset,refresh]);
+  // Run sync on mount or when explicit "Refresh queue" is clicked
+  useEffect(() => {
+    reviewQueueApi.sync().catch(() => {});
+  }, [refresh]);
+
+  useEffect(() => {
+    let active = true;
+    setBusy(true);
+    setError('');
+    (async () => {
+      try {
+        const response = await reviewQueueApi.list({
+          case_type: type || undefined,
+          status: status || undefined,
+          severity: severity || undefined,
+          offset,
+          limit: 50,
+        });
+        if (active) setData(response.data);
+      } catch (e) {
+        if (active) setError(e.response?.data?.detail || 'Could not load the shared queue.');
+      } finally {
+        if (active) setBusy(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [type, status, severity, offset, refresh]);
   return <main className="main-content"><h1>Shared review queue</h1><p>All review cases in one place. Findings are review signals, never proof of fraud.</p>
     <form className="glass-card transfer-controls mb-4" onSubmit={e=>{e.preventDefault();setRefresh(v=>v+1);}}>
       <label>Case type<select value={type} onChange={e=>setFilter('case_type',e.target.value)}><option value="">All types</option>{Object.entries(TYPES).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>

@@ -10,11 +10,12 @@ venv/
 env/
 .venv/
 
-# ML artifacts
-trained_models/
+# ML artifacts (ignore experiment scratchpads, but include production model)
 *.pt
 *.pkl
 *.joblib
+!backend/trained_models/pipeline_v2.joblib
+!backend/trained_models/training_report.json
 scripts/artifacts/model-backups/
 scripts/artifacts/demo-credentials.txt
 scripts/artifacts/time-evidence-backups/
