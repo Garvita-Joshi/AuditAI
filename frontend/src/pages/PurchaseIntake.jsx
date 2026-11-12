@@ -1090,11 +1090,14 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
  const [paypalMsg, setPaypalMsg] = React.useState('');
  const [paypalPayment, setPaypalPayment] = React.useState(poRecord?.paypal_payment || null);
 
- const handlePaypalCheckout = async () => {
+ const handlePaypalCheckout = async (targetVendorId) => {
   if (!rowId || paypalBusy) return;
   setPaypalBusy(true);
   setPaypalMsg('');
   try {
+   if (!poRecord && (targetVendorId || favouredVendorId)) {
+    await handleApproveWinner(targetVendorId || favouredVendorId);
+   }
    const res = await sourcingApi.paypalCheckout(rowId);
    const payload = res.data;
    if (payload?.paypal_payment) {
@@ -1112,16 +1115,19 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
   }
  };
 
- const handlePaypalDirectSettle = async () => {
+ const handlePaypalDirectSettle = async (targetVendorId) => {
   if (!rowId || paypalBusy) return;
   setPaypalBusy(true);
   setPaypalMsg('');
   try {
+   if (!poRecord && (targetVendorId || favouredVendorId)) {
+    await handleApproveWinner(targetVendorId || favouredVendorId);
+   }
    const res = await sourcingApi.paypalDirectSettle(rowId);
    const payload = res.data;
    if (payload?.paypal_payment) {
     setPaypalPayment(payload.paypal_payment);
-    setPaypalMsg(`PayPal Sandbox Payment Settled (${payload.paypal_payment.status || 'COMPLETED'})`);
+    setPaypalMsg(`✓ PayPal Sandbox Payment Settled (${payload.paypal_payment.status || 'COMPLETED'})`);
    }
   } catch (err) {
    setPaypalMsg(`Error: ${err.response?.data?.detail || err.message || 'Direct settlement failed'}`);
@@ -1474,19 +1480,49 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
 
      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:'10px', alignSelf:'center'}}>
       {poRecord ? (
-       <span style={{background:'rgba(239, 153, 118, 0.14)',border:'1px solid rgba(239, 153, 118, 0.35)',color:'#f5d0bc',padding:'10px 18px',borderRadius:'10px',fontSize:'13px',fontWeight:700}}>
-        PO Authorized: {poRecord.po_number}
-       </span>
+       <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+        <span style={{background:'rgba(239, 153, 118, 0.14)',border:'1px solid rgba(239, 153, 118, 0.35)',color:'#f5d0bc',padding:'8px 14px',borderRadius:'10px',fontSize:'12.5px',fontWeight:700}}>
+         PO: {poRecord.po_number}
+        </span>
+        {paypalPayment?.status?.toLowerCase() === 'completed' ? (
+         <span style={{background:'rgba(16,185,129,0.2)',border:'1px solid rgba(16,185,129,0.45)',color:'#34d399',padding:'8px 14px',borderRadius:'10px',fontSize:'12.5px',fontWeight:700}}>
+          ✓ PayPal Paid
+         </span>
+        ) : (
+         <button
+          type="button"
+          className="cv-btn"
+          style={{background:'rgba(0,112,186,0.2)',border:'1px solid rgba(56,189,248,0.45)',color:'#7dd3fc',fontWeight:700,fontSize:'12.5px',padding:'8px 16px',borderRadius:'10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px'}}
+          disabled={paypalBusy}
+          onClick={()=>handlePaypalDirectSettle(favouredVendorId)}
+          title="Directly settle and reconcile via PayPal Sandbox API"
+         >
+          {paypalBusy ? 'Settling…' : '💳 Pay via PayPal'}
+         </button>
+        )}
+       </div>
       ) : favouredVendorName && (
-       <button
-        type="button"
-        className="cv-btn cv-btn-primary"
-        style={{background:'#ef9976',border:'1px solid #ef9976',color:'#1c1917',fontWeight:700,fontSize:'13px',padding:'11px 20px',borderRadius:'10px',cursor:'pointer'}}
-        disabled={approvingPo}
-        onClick={()=>handleApproveWinner(favouredVendorId)}
-       >
-        {approvingPo ? 'Authorizing Purchase Order...' : `Authorize PO for ${favouredVendorName}`}
-       </button>
+       <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+        <button
+         type="button"
+         className="cv-btn cv-btn-primary"
+         style={{background:'#ef9976',border:'1px solid #ef9976',color:'#1c1917',fontWeight:700,fontSize:'13px',padding:'10px 18px',borderRadius:'10px',cursor:'pointer'}}
+         disabled={approvingPo}
+         onClick={()=>handleApproveWinner(favouredVendorId)}
+        >
+         {approvingPo ? 'Authorizing Purchase Order...' : `Authorize PO for ${favouredVendorName}`}
+        </button>
+        <button
+         type="button"
+         className="cv-btn"
+         style={{background:'rgba(0,112,186,0.2)',border:'1px solid rgba(56,189,248,0.45)',color:'#7dd3fc',fontWeight:700,fontSize:'13px',padding:'10px 18px',borderRadius:'10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px'}}
+         disabled={approvingPo || paypalBusy}
+         onClick={()=>handlePaypalDirectSettle(favouredVendorId)}
+         title="Authorize PO and settle payment via PayPal Sandbox in 1 click"
+        >
+         {paypalBusy ? 'Settling…' : '💳 Settle with PayPal'}
+        </button>
+       </div>
       )}
      </div>
     </div>
@@ -1555,7 +1591,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
          {v.concerns?.length>0&&<ul className="cv-concerns" style={{margin:'6px 0',paddingLeft:'16px',fontSize:'12px',color:'#a8a29e',lineHeight:1.5}}>{v.concerns.map((c,j)=><li key={j}>{c}</li>)}</ul>}
         </div>
         {!poRecord && (
-         <div style={{marginTop:'10px',paddingTop:'12px',borderTop:'1px solid rgba(255,255,255,0.06)',textAlign:'right'}}>
+         <div style={{marginTop:'10px',paddingTop:'12px',borderTop:'1px solid rgba(255,255,255,0.06)',display:'flex',gap:'8px',justifyContent:'flex-end',flexWrap:'wrap'}}>
           <button
            type="button"
            className="cv-btn cv-btn-secondary cv-btn-sm"
@@ -1565,6 +1601,16 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
           >
            {i===0?'Authorize PO for Favoured Supplier':'Select & Authorize PO'}
           </button>
+          <button
+           type="button"
+           className="cv-btn cv-btn-sm"
+           style={{background:'rgba(0,112,186,0.18)',border:'1px solid rgba(56,189,248,0.35)',color:'#7dd3fc',fontWeight:700,fontSize:'11.5px',padding:'6px 12px',borderRadius:'7px',cursor:'pointer'}}
+           disabled={approvingPo || paypalBusy}
+           onClick={()=>handlePaypalDirectSettle(v.vendor_id)}
+           title="Authorize PO and settle payment via PayPal Sandbox"
+          >
+           💳 Pay with PayPal
+          </button>
          </div>
         )}
        </div>)}
@@ -1573,27 +1619,27 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
     )}
 
     {/* ── HUMAN-IN-THE-LOOP PAYMENT GATE & CONTINUOUS LEARNING ML MODEL ── */}
-    {poRecord && (
+    {(poRecord || (hasQuotes && (favouredVendorName || negotiationReport?.lowest_price))) && (
      <div style={{marginTop:'26px',padding:'24px 26px',borderRadius:'14px',background:'linear-gradient(135deg, rgba(38,32,29,0.95) 0%, rgba(28,25,23,0.95) 100%)',border:'1.5px solid rgba(239, 153, 118, 0.45)',boxShadow:'0 10px 30px rgba(0,0,0,0.35)'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'16px',marginBottom:'18px',paddingBottom:'16px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
        <div>
         <div style={{display:'inline-flex',alignItems:'center',gap:'8px',background:paypalPayment?.status?.toLowerCase() === 'completed' ? 'rgba(16,185,129,0.2)' : 'rgba(239, 153, 118, 0.15)',border:paypalPayment?.status?.toLowerCase() === 'completed' ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(239, 153, 118, 0.35)',padding:'4px 12px',borderRadius:'999px',fontSize:'11px',fontWeight:800,letterSpacing:'0.06em',color:paypalPayment?.status?.toLowerCase() === 'completed' ? '#34d399' : '#ef9976',textTransform:'uppercase',marginBottom:'8px'}}>
-         {paypalPayment?.status?.toLowerCase() === 'completed' ? '✓ Payment Settled via PayPal Sandbox' : '⚡ Human-in-the-Loop Gate · Payment Settlement Only'}
+         {paypalPayment?.status?.toLowerCase() === 'completed' ? '✓ Payment Settled via PayPal Sandbox' : '⚡ Human-in-the-Loop Gate · PayPal Sandbox Settlement'}
         </div>
         <h4 style={{margin:'4px 0 6px',fontSize:'20px',fontWeight:800,color:'#fafaf9'}}>
-         Purchase Order {poRecord.po_number} · {paypalPayment?.status?.toLowerCase() === 'completed' ? 'Payment Completed (Settled)' : 'Ready for Payment'}
+         {poRecord ? `Purchase Order ${poRecord.po_number}` : `Selected Finalist: ${favouredVendorName || 'Leading Supplier'}`} · {paypalPayment?.status?.toLowerCase() === 'completed' ? 'Payment Completed (Settled)' : 'Ready for Payment'}
         </h4>
         <p style={{margin:0,fontSize:'13px',color:'#d6d3d1',maxWidth:'780px',lineHeight:1.55}}>
-         The AI Sourcing Agent has autonomously selected {poRecord.winner_vendor_name || favouredVendorName}, verified commercial terms, and negotiated best pricing. Human oversight is involved <strong>strictly at payment time</strong>.
+         The AI Sourcing Agent has autonomously selected {poRecord?.winner_vendor_name || favouredVendorName || 'the winning supplier'}, verified commercial terms, and negotiated best pricing. Human oversight is involved <strong>strictly at payment time</strong>.
         </p>
        </div>
        <div style={{textAlign:'right'}}>
         <span style={{fontSize:'11px',textTransform:'uppercase',letterSpacing:'0.06em',color:'#a8a29e'}}>Total Authorized</span>
         <div style={{fontSize:'22px',fontWeight:800,color:'#ef9976',marginTop:'2px'}}>
-         {poRecord.currency || 'INR'} {Number(poRecord.total_amount || 0).toLocaleString()}
+         {poRecord?.currency || 'INR'} {Number(poRecord?.total_amount || negotiationReport?.lowest_price || 0).toLocaleString()}
         </div>
         <small style={{fontSize:'12px',color:'#a8a29e'}}>
-         ≈ ${((Number(poRecord.total_amount || 0)) / (poRecord.currency === 'USD' ? 1 : 84)).toFixed(2)} USD
+         ≈ ${((Number(poRecord?.total_amount || negotiationReport?.lowest_price || 0)) / ((poRecord?.currency || 'INR') === 'USD' ? 1 : 84)).toFixed(2)} USD
         </small>
        </div>
       </div>

@@ -123,6 +123,15 @@ export default function Navbar() {
             </span>
           </div>
 
+          {/* PayPal Sandbox Environment Badge */}
+          <div
+            className="navbar-paypal-badge"
+            title="PayPal Sandbox B2B Gateway · Safe simulation mode active"
+          >
+            <span className="navbar-paypal-dot" aria-hidden="true" />
+            <span className="navbar-paypal-text">PayPal sandbox</span>
+          </div>
+
           <div className="navbar-user" title={user?.roles?.join(', ')}>
             <strong>{user?.display_name || user?.email}</strong>
             <small>{(user?.roles?.includes('admin') || user?.role === 'admin') ? 'Administrator' : (user?.role || 'Employee')}</small>
