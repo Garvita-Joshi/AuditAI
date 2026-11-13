@@ -425,28 +425,28 @@ export default function GlobalCopilot() {
                     className="quick-chip"
                     onClick={() => quickSend('What is the current status of all running requests?')}
                   >
-                    🔍 Status of requests
+                    Status of requests
                   </button>
                   <button
                     type="button"
                     className="quick-chip"
                     onClick={() => quickSend('Are there any flagged fraud claims or policy anomalies?')}
                   >
-                    ⚠️ Flagged anomalies
+                    Flagged anomalies
                   </button>
                   <button
                     type="button"
                     className="quick-chip"
                     onClick={() => quickSend('What is the PayPal Sandbox payment status?')}
                   >
-                    💳 PayPal payment status
+                    PayPal payment status
                   </button>
                   <button
                     type="button"
                     className="quick-chip"
                     onClick={() => quickSend('What cases are pending in the review queue?')}
                   >
-                    ⚖️ Pending review queue
+                    Pending review queue
                   </button>
                 </div>
               </div>

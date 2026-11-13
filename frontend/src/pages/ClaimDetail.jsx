@@ -671,7 +671,7 @@ export default function ClaimDetail() {
                   </p>
                   {(procPay?.paypal_order_id || procPay?.order_id) && String(procPay?.status || '').toUpperCase() !== 'COMPLETED' && (
                     <div className="mt-2 p-2 rounded bg-status-success/10 border border-status-success/30 text-xs text-status-success">
-                      <strong>⚡ Direct Settlement:</strong> You can skip filling card numbers on PayPal. Click <strong>"Confirm / Capture Sandbox Payment"</strong> on the right to settle immediately.
+                      <strong>Direct Settlement:</strong> You can skip filling card numbers on PayPal. Click <strong>"Confirm / Capture Sandbox Payment"</strong> on the right to settle immediately.
                     </div>
                   )}
                 </div>
@@ -686,7 +686,7 @@ export default function ClaimDetail() {
                         disabled={paypalBusy}
                         style={{ background: '#059669', borderColor: '#059669' }}
                       >
-                        {paypalBusy ? 'Settling via API…' : '⚡ 1-Click Direct Settlement (Skip Login)'}
+                        {paypalBusy ? 'Settling via API…' : '1-Click Direct Settlement (Skip Login)'}
                       </button>
                     )}
 
@@ -799,7 +799,7 @@ export default function ClaimDetail() {
               </div>
             ) : reviewBlockReason ? (
               <div className="p-3 rounded-lg bg-status-warning/10 border border-status-warning/30 text-xs text-secondary">
-                ℹ️ {reviewBlockReason}
+                {reviewBlockReason}
               </div>
             ) : null}
 

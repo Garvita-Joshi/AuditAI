@@ -389,25 +389,21 @@ export default function AuditTimeLogModal({
           </div>
         </header>
 
-        {/* Top Summary Metric Cards (matching reference Image 3) */}
+        {/* Top Summary Metric Cards */}
         <div className="atl-summary-cards">
           <div className="atl-summary-card">
-            <div className="atl-summary-icon blue">#</div>
             <div className="atl-summary-val">{quoteId}</div>
             <div className="atl-summary-lbl">quote id</div>
           </div>
           <div className="atl-summary-card">
-            <div className="atl-summary-icon cyan">📅</div>
             <div className="atl-summary-val">{createdDateFormatted}</div>
             <div className="atl-summary-lbl">created</div>
           </div>
           <div className="atl-summary-card">
-            <div className="atl-summary-icon orange">⚡</div>
             <div className="atl-summary-val">{logs.length} events</div>
             <div className="atl-summary-lbl">milestones</div>
           </div>
           <div className="atl-summary-card">
-            <div className="atl-summary-icon pink">💲</div>
             <div className="atl-summary-val">{displayPrice}</div>
             <div className="atl-summary-lbl">price estimate</div>
           </div>

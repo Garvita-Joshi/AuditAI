@@ -611,7 +611,7 @@ export function WorkflowMindMap({workflow, requestId, assessment: initialAssessm
            )}
            {paypalPayment?.order_id && paypalPayment?.status !== 'completed' && (
             <div style={{margin:'0 0 10px',padding:'9px 12px',borderRadius:8,background:'rgba(16, 185, 129, 0.08)',border:'1px solid rgba(16, 185, 129, 0.25)',fontSize:12,color:'#d1fae5'}}>
-             <strong>⚡ Direct 1-Click Settlement:</strong> You do <em>not</em> need to fill in card details on PayPal's guest form. Click <strong>"Confirm / Capture Sandbox Payment"</strong> below to settle and reconcile this invoice directly.
+             <strong>Direct 1-Click Settlement:</strong> You do <em>not</em> need to fill in card details on PayPal's guest form. Click <strong>"Confirm / Capture Sandbox Payment"</strong> below to settle and reconcile this invoice directly.
             </div>
            )}
            <div style={{display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
@@ -623,7 +623,7 @@ export function WorkflowMindMap({workflow, requestId, assessment: initialAssessm
               disabled={paypalBusy}
               style={{background:'#059669',borderColor:'#059669',fontWeight:700}}
              >
-              {paypalBusy ? 'Settling via API…' : '⚡ 1-Click Direct Settlement (Skip Login)'}
+              {paypalBusy ? 'Settling via API…' : '1-Click Direct Settlement (Skip Login)'}
              </button>
             )}
             {paypalPayment?.approval_url && paypalPayment?.status !== 'completed' && (
@@ -1497,7 +1497,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
           onClick={()=>handlePaypalDirectSettle(favouredVendorId)}
           title="Directly settle and reconcile via PayPal Sandbox API"
          >
-          {paypalBusy ? 'Settling…' : '💳 Pay via PayPal'}
+          {paypalBusy ? 'Settling…' : 'Pay via PayPal'}
          </button>
         )}
        </div>
@@ -1520,7 +1520,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
          onClick={()=>handlePaypalDirectSettle(favouredVendorId)}
          title="Authorize PO and settle payment via PayPal Sandbox in 1 click"
         >
-         {paypalBusy ? 'Settling…' : '💳 Settle with PayPal'}
+         {paypalBusy ? 'Settling…' : 'Settle with PayPal'}
         </button>
        </div>
       )}
@@ -1609,7 +1609,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
            onClick={()=>handlePaypalDirectSettle(v.vendor_id)}
            title="Authorize PO and settle payment via PayPal Sandbox"
           >
-           💳 Pay with PayPal
+           Pay with PayPal
           </button>
          </div>
         )}
@@ -1624,7 +1624,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'16px',marginBottom:'18px',paddingBottom:'16px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
        <div>
         <div style={{display:'inline-flex',alignItems:'center',gap:'8px',background:paypalPayment?.status?.toLowerCase() === 'completed' ? 'rgba(16,185,129,0.2)' : 'rgba(239, 153, 118, 0.15)',border:paypalPayment?.status?.toLowerCase() === 'completed' ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(239, 153, 118, 0.35)',padding:'4px 12px',borderRadius:'999px',fontSize:'11px',fontWeight:800,letterSpacing:'0.06em',color:paypalPayment?.status?.toLowerCase() === 'completed' ? '#34d399' : '#ef9976',textTransform:'uppercase',marginBottom:'8px'}}>
-         {paypalPayment?.status?.toLowerCase() === 'completed' ? '✓ Payment Settled via PayPal Sandbox' : '⚡ Human-in-the-Loop Gate · PayPal Sandbox Settlement'}
+         {paypalPayment?.status?.toLowerCase() === 'completed' ? '✓ Payment Settled via PayPal Sandbox' : 'Human-in-the-Loop Gate · PayPal Sandbox Settlement'}
         </div>
         <h4 style={{margin:'4px 0 6px',fontSize:'20px',fontWeight:800,color:'#fafaf9'}}>
          {poRecord ? `Purchase Order ${poRecord.po_number}` : `Selected Finalist: ${favouredVendorName || 'Leading Supplier'}`} · {paypalPayment?.status?.toLowerCase() === 'completed' ? 'Payment Completed (Settled)' : 'Ready for Payment'}
@@ -1648,7 +1648,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
       <div style={{background:'rgba(16, 185, 129, 0.08)',border:'1px solid rgba(16, 185, 129, 0.28)',borderRadius:'10px',padding:'14px 18px',marginBottom:'20px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'14px'}}>
        <div>
         <div style={{fontSize:'12.5px',fontWeight:700,color:'#34d399',display:'flex',alignItems:'center',gap:'8px'}}>
-         <span>🧠</span> ML Procurement Model Auto-Updated (Autoencoder + Isolation Forest)
+         ML Procurement Model Auto-Updated (Autoencoder + Isolation Forest)
         </div>
         <div style={{fontSize:'12px',color:'#d1fae5',marginTop:'3px'}}>
          Confirmed purchase terms trained into anomaly baseline. Training Rows: <strong>{poRecord.ml_model_update?.training_rows || 6001}</strong> · Anomaly Score: <strong>{poRecord.ml_model_update?.anomaly_score ?? 0.26}</strong> · Status: <span style={{fontWeight:700,color:'#34d399'}}>{poRecord.ml_model_update?.decision_label || 'Clean - Considered Not Fraud'}</span>
@@ -1698,7 +1698,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
            disabled={paypalBusy}
            onClick={handlePaypalDirectSettle}
           >
-           {paypalBusy ? 'Settling…' : '⚡ 1-Click Direct Settlement (Skip Login)'}
+           {paypalBusy ? 'Settling…' : '1-Click Direct Settlement (Skip Login)'}
           </button>
          </div>
         )}
@@ -2202,7 +2202,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
                       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))',gap:12,marginBottom:14}}>
                         <div style={{background:'#181513',padding:'14px 16px',borderRadius:10,border:'1px solid #332b26'}}>
                           <small style={{display:'block',color:'#ef9976',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>
-                            🔍 What is Incomplete in Reply ({incomp.length})
+                            What is Incomplete in Reply ({incomp.length})
                           </small>
                           {incomp.length ? (
                             <ul style={{margin:0,paddingLeft:16,fontSize:12,color:'#cfc7c2',lineHeight:1.6}}>
@@ -2217,7 +2217,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
 
                         <div style={{background:'#181513',padding:'14px 16px',borderRadius:10,border:'1px solid #332b26'}}>
                           <small style={{display:'block',color:'#f87171',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>
-                            ⚠️ What is Non-Compliant / Wrong ({wrong.length})
+                            What is Non-Compliant / Wrong ({wrong.length})
                           </small>
                           {wrong.length ? (
                             <ul style={{margin:0,paddingLeft:16,fontSize:12,color:'#cfc7c2',lineHeight:1.6}}>
@@ -2234,7 +2234,7 @@ export function SourcingAgentReview({run,selected,setSelected,busy,onSend,onRepl
                       {grounds.length > 0 && (
                         <div style={{background:'#181513',padding:'14px 16px',borderRadius:10,border:'1px solid rgba(239, 153, 118, 0.22)'}}>
                           <small style={{display:'block',color:'#f5d0bc',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>
-                            🎯 Specific Grounds for Counteroffer Negotiation
+                            Specific Grounds for Counteroffer Negotiation
                           </small>
                           <div style={{display:'grid',gap:10}}>
                             {grounds.map((g, idx) => (
