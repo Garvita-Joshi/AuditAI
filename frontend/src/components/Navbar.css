@@ -1,25 +1,36 @@
 .navbar {
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(calc(100% - 24px), 1380px);
-  padding: 6px 14px;
-  z-index: 50;
-  border-radius: 9999px;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+  transform: none !important;
+  height: 56px;
+  padding: 0 24px;
+  z-index: 1000;
+  border-radius: 0 !important;
   background: #0d0d0d !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
 }
 
 .navbar-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
+  height: 100%;
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -27,7 +38,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-right: 14px;
+  padding-right: 16px;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
   cursor: pointer;
@@ -53,7 +64,7 @@
 .navbar-links {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   margin-left: auto;
   flex-wrap: nowrap;
   min-width: 0;
@@ -70,9 +81,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 11px;
+  padding: 6px 12px;
   border-radius: 9999px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 500;
   color: #a8a29e;
   border: 1px solid transparent;
@@ -130,7 +141,7 @@
   font-weight: 600;
   color: #f2eee9;
   white-space: nowrap;
-  max-width: 130px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -191,7 +202,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 0 8px;
+  padding: 0 10px;
   margin-left: 2px;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   min-width: 0;
@@ -205,7 +216,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 110px;
+  max-width: 120px;
   display: block;
 }
 
@@ -233,8 +244,8 @@
 /* Sign out button */
 .navbar-signout {
   color: #d6d3d1;
-  padding: 6px 10px;
-  gap: 5px;
+  padding: 6px 12px;
+  gap: 6px;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -251,20 +262,11 @@
   }
 }
 
-@media (max-width: 1260px) {
-  .navbar-paypal-text {
-    display: none;
-  }
-}
-
 @media (max-width: 1200px) {
   .navbar-workspace-badge {
     display: none;
   }
-  .navbar-paypal-badge {
-    display: none;
-  }
-  .navbar-signout .navbar-signout-text {
+  .navbar-paypal-text {
     display: none;
   }
 }

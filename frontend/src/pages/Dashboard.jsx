@@ -7,12 +7,10 @@ import StatCard from '../components/StatCard';
 import ScoreBadge from '../components/ScoreBadge';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import ExplainabilityPanel from '../components/ExplainabilityPanel';
-import { useAuditProfile } from '../context/AuditProfileContext';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { profile, companyName, currency } = useAuditProfile();
 
   // Table Filters
   const [statusFilter, setStatusFilter] = useState('all');
@@ -85,32 +83,6 @@ export default function Dashboard() {
 
   return (
     <div className="main-content">
-      {/* Entity Context Breadcrumbs */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-sm text-muted">
-          <span>Global Auditing</span>
-          <span>/</span>
-          <span className="text-secondary font-medium">{companyName} · {currency}</span>
-        </div>
-        <span
-          className="badge text-xs"
-          style={{ background: `${profile.color}20`, color: profile.color, border: `1px solid ${profile.color}40` }}
-        >
-          {profile.name}
-        </span>
-      </div>
-
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Audit Dashboard</h1>
-          <p className="text-xs text-secondary mt-1">Real-time expense anomaly signals, policy findings, and reviewer metrics.</p>
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <h2 className="text-lg font-bold tracking-tight text-primary">Expense model and policy results</h2>
-        <p className="text-xs text-secondary mt-0.5">Automated detection signals and model explanation benchmarks.</p>
-      </div>
       {/* Case Cycle KPI Row */}
       <div className="grid-cols-3 mb-6">
         <div className="glass-card flex items-center gap-4" style={{ padding: '16px 24px' }}>
