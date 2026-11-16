@@ -23,19 +23,26 @@ logger = logging.getLogger(__name__)
 _AMOUNT_PATTERNS = [
     re.compile(
         r"(?:grand\s*total|total\s*(?:amount|due|payable)?|amount\s*(?:due|payable)?|net\s*(?:amount|total)|balance\s*due)"
-        r"[:\s₹$€£]*\s*([\d,]+\.?\d*)",
+        r"\s*[:=\-]?\s*(?:[₹$€£]|inr|rs\.?|usd)?\s*([0-9oOIl|,\.]+)",
+        re.IGNORECASE,
+    ),
+    # Matches "TOTAL $10247.14" or "TOTAL: 1,475.00" or "TOTAL 5000"
+    re.compile(
+        r"(?:^|\n)\s*(?:total|amount|net|due)\s*[:=\-]?\s*[$₹€£]?\s*([0-9oOIl][0-9oOIl,\.]*)",
         re.IGNORECASE,
     ),
     # Standalone currency amount on a line (fallback)
-    re.compile(r"[₹$]\s*([\d,]+\.\d{2})\s*$", re.MULTILINE),
+    re.compile(r"[₹$€£]\s*([0-9oOIl,]+\.[0-9oOIl]{2})\s*$", re.MULTILINE),
 ]
 
 # Date patterns
 _DATE_PATTERNS = [
-    # YYYY-MM-DD
+    # YYYY-MM-DD or YYYY/MM/DD
     re.compile(r"\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b"),
     # DD/MM/YYYY or DD-MM-YYYY
     re.compile(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b"),
+    # Dt: 2026-11-21 or Date: 2026-11-21
+    re.compile(r"(?:date|dt|dated)\s*[:=\-]?\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})", re.IGNORECASE),
     # Mon DD, YYYY or DD Mon YYYY
     re.compile(
         r"\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
@@ -53,26 +60,75 @@ _DATE_PATTERNS = [
 _TAX_PATTERNS = [
     # Indian GST: 2-digit state code + 10-char PAN + entity code + Z + check digit
     re.compile(r"\b(\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d])\b"),
+    # Common OCR tax label with spaces or minor misreads: TAXID 27 AABCUBGORIZ2
+    re.compile(r"(?:tax\s*id|gstin?|tin)\s*[:=\-]?\s*([A-Z0-9\s\-]{8,22})", re.IGNORECASE),
     # US EIN
     re.compile(r"\b(\d{2}-\d{7})\b"),
-    # Generic tax/VAT
-    re.compile(r"(?:tax\s*id|vat|tin|gstin?)[:\s#]*([A-Z0-9\-]{8,20})", re.IGNORECASE),
 ]
 
 # Line item: text followed by an amount
 _LINE_ITEM_PATTERN = re.compile(
-    r"^(.{3,40}?)\s+([\d,]+\.\d{2})\s*$", re.MULTILINE
+    r"^(.{3,40}?)\s+[$₹€£]?\s*([0-9oOIl,]+\.[0-9oOIl]{2})\s*$", re.MULTILINE
 )
 
 
+def _clean_numeric_ocr(raw_val: str) -> Optional[float]:
+    """
+    Error-tolerant digit parser that corrects common OCR character substitutions.
+    'o'/'O' -> '0', 'I'/'l'/'|' -> '1', strips non-numeric noise while preserving decimals.
+    """
+    if not raw_val:
+        return None
+    cleaned = (
+        raw_val.replace("o", "0")
+        .replace("O", "0")
+        .replace("I", "1")
+        .replace("l", "1")
+        .replace("|", "1")
+        .replace(" ", "")
+        .replace(",", "")
+    )
+    cleaned = re.sub(r"[^0-9.]", "", cleaned)
+    # Handle multiple periods (keep only the last one)
+    if cleaned.count(".") > 1:
+        parts = cleaned.split(".")
+        cleaned = "".join(parts[:-1]) + "." + parts[-1]
+    try:
+        val = float(cleaned)
+        return val if val > 0 else None
+    except ValueError:
+        return None
+
+
 def _extract_vendor_regex(text: str) -> Optional[str]:
-    """Extract vendor name as the first non-empty, non-numeric line."""
+    """Extract vendor name: checks explicit vendor label first, then first non-header line."""
+    # Strategy 1: Explicit Vendor/Supplier label
+    match = re.search(
+        r"(?:^|\n)\s*(?:vendor|merchant|seller|supplier|store)\s*[:=\-]?\s*([A-Za-z0-9\s&'.-]{3,50}?)(?:\r?\n|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if match:
+        vendor = match.group(1).strip()
+        if len(vendor) >= 3 and not re.match(r"^[\d\s\-/.,₹$]+$", vendor):
+            return vendor
+
+    # Strategy 2: First non-empty, non-header line
+    header_blacklist = {
+        "receipt", "invoice", "tax invoice", "bill", "cash receipt",
+        "corporate expense receipt", "expense receipt", "official receipt",
+        "retail invoice", "cash memo"
+    }
     for line in text.split("\n"):
-        cleaned = line.strip()
+        cleaned = line.strip().strip("“\"'‘`*~_#>")
         if not cleaned:
             continue
-        # Skip lines that are purely numeric, dates, or very short
+        if cleaned.lower() in header_blacklist:
+            continue
+        # Skip lines that are purely numeric, dates, tax markers, or very short
         if re.match(r"^[\d\s\-/.,₹$]+$", cleaned):
+            continue
+        if re.search(r"^(?:date|dt|tax\s*id|invoice\s*number|tel|receipt\s*number)", cleaned, re.IGNORECASE):
             continue
         if len(cleaned) < 3:
             continue
@@ -81,16 +137,15 @@ def _extract_vendor_regex(text: str) -> Optional[str]:
 
 
 def _extract_amount_regex(text: str) -> Optional[float]:
-    """Extract the total amount from receipt text."""
+    """Extract the total amount from receipt text with OCR error correction."""
     for pattern in _AMOUNT_PATTERNS:
         matches = pattern.findall(text)
         if matches:
-            # Take the last match (usually the final total)
-            raw = matches[-1]
-            try:
-                return float(raw.replace(",", ""))
-            except ValueError:
-                continue
+            # Check matches in reverse (grand totals typically appear at bottom)
+            for m in reversed(matches):
+                amt = _clean_numeric_ocr(m)
+                if amt is not None:
+                    return amt
     return None
 
 
@@ -219,3 +274,48 @@ def extract_fields(
             logger.warning("LLM fallback extraction failed: %s", e)
 
     return fields
+
+
+def extract_call_journey_from_text(text: str) -> Dict[str, Any]:
+    """
+    Extract outbound call blocks and milestone elapsed times from OCR text.
+    Handles OCR character confusion (e.g. o/O -> 0, l/1/i/| -> l) and strips noise.
+    Matches the user reference specification for call journey validation.
+    """
+    clean_text = text.lower()
+    for ch in [" ", "@", "©", ">", "\n", "\t", '"', "'", "`", "~", "*", "_"]:
+        clean_text = clean_text.replace(ch, "")
+
+    # Error-tolerant call regex matching
+    calls = re.findall(r"c[a4o0@][l1i\|]{2}|cal[l1i\|]|ca[l1i\|]l|call", clean_text)
+
+    # Error-tolerant elapsed time pattern ([days]d [hours]h [mins]m)
+    # Allows [hHn] for hour glyphs and [oO] for zeros
+    time_pattern = re.compile(r"([0-9oO]+d)?([0-9oO]+)[hHn]([0-9oO]+)[mM]")
+    raw_times = time_pattern.findall(clean_text)
+
+    times = []
+    for days, hours, mins in raw_times:
+        days_str = days.replace("o", "0").replace("O", "0") if days else ""
+        hours_str = hours.replace("o", "0").replace("O", "0")
+        mins_str = mins.replace("o", "0").replace("O", "0")
+
+        t = f"{days_str[:-1]}d {hours_str}h {mins_str}m" if days_str else f"{hours_str}h {mins_str}m"
+        times.append(t)
+
+    # Remove duplicates preserving order
+    unique_times = list(dict.fromkeys(times))
+
+    journey_steps = []
+    for i, t in enumerate(unique_times):
+        step = {"call_index": i + 1, "timestamp": t}
+        if i < len(unique_times) - 1:
+            step["next_step_after"] = unique_times[i + 1]
+        journey_steps.append(step)
+
+    return {
+        "call_count": len(calls),
+        "times": unique_times,
+        "journey": journey_steps,
+        "cleaned_text": clean_text,
+    }

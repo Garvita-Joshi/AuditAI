@@ -41,9 +41,26 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 
 # === OCR ===
-# Bundled CPU OCR with optional PaddleOCR/Tesseract fallbacks.
-OCR_PRIMARY_ENGINE = os.getenv("OCR_PRIMARY_ENGINE", "rapidocr")
-TESSERACT_CMD = os.getenv("TESSERACT_CMD", "tesseract")  # Path to tesseract binary
+# Prioritize high-accuracy Tesseract with macOS Homebrew / Linux auto-detection, fallback to RapidOCR
+def _detect_tesseract_cmd() -> str:
+    from pathlib import Path
+    import shutil
+    configured = os.getenv("TESSERACT_CMD")
+    if configured and shutil.which(configured):
+        return configured
+    for candidate in [
+        "/opt/homebrew/bin/tesseract",
+        "/usr/local/bin/tesseract",
+        shutil.which("tesseract"),
+        "C:/Program Files/Tesseract-OCR/tesseract.exe",
+        "C:/Program Files (x86)/Tesseract-OCR/tesseract.exe",
+    ]:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    return "tesseract"
+
+TESSERACT_CMD = _detect_tesseract_cmd()
+OCR_PRIMARY_ENGINE = os.getenv("OCR_PRIMARY_ENGINE", "tesseract" if os.path.isabs(TESSERACT_CMD) or shutil.which(TESSERACT_CMD) else "rapidocr")
 
 # === ML Pipeline ===
 # Autoencoder hyperparameters

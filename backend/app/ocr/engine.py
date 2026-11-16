@@ -50,34 +50,51 @@ class OcrEngine:
         # Check if pytesseract is available
         try:
             import pytesseract  # noqa: F401
-            executable = shutil.which(TESSERACT_CMD)
-            candidates = [Path(TESSERACT_CMD), Path(os.getenv('ProgramFiles', 'C:/Program Files')) / 'Tesseract-OCR/tesseract.exe',
-                          Path(os.getenv('LOCALAPPDATA', '')) / 'Programs/Tesseract-OCR/tesseract.exe']
-            executable = executable or next((str(p) for p in candidates if p.is_file()), None)
+            candidates = [
+                Path(TESSERACT_CMD),
+                Path("/opt/homebrew/bin/tesseract"),
+                Path("/usr/local/bin/tesseract"),
+                Path(shutil.which("tesseract") or ""),
+                Path(os.getenv('ProgramFiles', 'C:/Program Files')) / 'Tesseract-OCR/tesseract.exe',
+                Path(os.getenv('LOCALAPPDATA', '')) / 'Programs/Tesseract-OCR/tesseract.exe'
+            ]
+            executable = next((str(p) for p in candidates if p and p.is_file()), None) or shutil.which(TESSERACT_CMD)
             if executable:
                 pytesseract.pytesseract.tesseract_cmd = executable
                 pytesseract.get_tesseract_version()
                 self._tesseract_available = True
+                logger.info("Tesseract initialized successfully at %s", executable)
             else:
                 logger.warning('Tesseract executable not found; set TESSERACT_CMD.')
-        except Exception:
-            logger.warning("pytesseract not available either.")
+        except Exception as e:
+            logger.warning("pytesseract not available: %s", e)
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, float, str]:
         """
-        Extract text from a preprocessed image.
+        Extract text from a preprocessed image with engine prioritization.
 
         Args:
             image: Preprocessed numpy array (grayscale or BGR).
 
         Returns:
             Tuple of (raw_text, confidence_0_to_1, method_used).
-            method_used is one of 'paddleocr', 'tesseract', or 'failed'.
+            method_used is one of 'tesseract', 'rapidocr', 'paddleocr', or 'failed'.
         """
         if image is None or image.size == 0:
             return ("", 0.0, "failed")
 
-        # Bundled CPU models: no separate executable or network inference.
+        from backend.app.config import OCR_PRIMARY_ENGINE
+
+        # Primary Option: Tesseract (High accuracy with --psm 6 and contrast enhancement)
+        if (OCR_PRIMARY_ENGINE == "tesseract" or not self._rapid_attempted) and self._tesseract_available:
+            try:
+                text, confidence = self._extract_tesseract(image)
+                if text and len(text.strip()) > 5:
+                    return (text, confidence, "tesseract")
+            except Exception as e:
+                logger.warning("Primary Tesseract extraction failed: %s", e)
+
+        # Fallback 1: RapidOCR (Bundled CPU models)
         if not self._rapid_attempted:
             self._rapid_attempted = True
             try:
@@ -85,16 +102,18 @@ class OcrEngine:
                 self._rapid_ocr = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
             except Exception as exc:
                 logger.warning('RapidOCR unavailable: %s', exc)
+
         if self._rapid_ocr is not None:
             try:
                 result, _ = self._rapid_ocr(image)
                 if result:
-                    return ('\n'.join(str(row[1]) for row in result),
-                            float(np.mean([float(row[2]) for row in result])), 'rapidocr')
+                    extracted = '\n'.join(str(row[1]) for row in result)
+                    if extracted.strip():
+                        return (extracted, float(np.mean([float(row[2]) for row in result])), 'rapidocr')
             except Exception as exc:
                 logger.warning('RapidOCR failed: %s', exc)
 
-        # Try PaddleOCR first
+        # Fallback 2: PaddleOCR if configured
         if self._paddle_available:
             try:
                 text, confidence = self._extract_paddle(image)
@@ -104,59 +123,48 @@ class OcrEngine:
             except Exception as e:
                 logger.warning("PaddleOCR extraction failed: %s", e)
 
-        # Fallback to pytesseract
+        # Fallback 3: Tesseract if not already tried
         if self._tesseract_available:
             try:
                 text, confidence = self._extract_tesseract(image)
                 if text.strip():
                     return (text, confidence, "tesseract")
             except Exception as e:
-                logger.warning("pytesseract extraction failed: %s", e)
+                logger.warning("Tesseract extraction failed: %s", e)
 
         return ("", 0.0, "failed")
 
-    def _extract_paddle(self, image: np.ndarray) -> Tuple[str, float]:
-        """Run PaddleOCR and return (text, avg_confidence)."""
-        result = self._paddle_ocr.ocr(image, cls=True)
-
-        if not result or not result[0]:
-            return ("", 0.0)
-
-        lines = []
-        confidences = []
-        for line_info in result[0]:
-            # Each line_info is [box_coords, (text, confidence)]
-            if len(line_info) >= 2:
-                text_conf = line_info[1]
-                if isinstance(text_conf, (list, tuple)) and len(text_conf) >= 2:
-                    lines.append(str(text_conf[0]))
-                    confidences.append(float(text_conf[1]))
-
-        raw_text = "\n".join(lines)
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-
-        return (raw_text, avg_confidence)
-
-    def _extract_tesseract(self, image: np.ndarray) -> Tuple[str, float]:
-        """Run pytesseract and return (text, avg_confidence)."""
+    def _extract_tesseract(self, image: np.ndarray, config: str = "--psm 6") -> Tuple[str, float]:
+        """
+        Run pytesseract with optimized page segmentation and error-tolerant parsing.
+        """
         import pytesseract
 
-        # Get plain text
-        raw_text = pytesseract.image_to_string(image)
+        # Pass 1: Try --psm 6 (Uniform block of text / receipt table)
+        raw_text = pytesseract.image_to_string(image, config=config).strip()
 
-        # Get confidence from detailed data
+        # Pass 2: If very short text extracted, try --psm 4 (Single column variable text)
+        if len(raw_text) < 20 and config != "--psm 4":
+            alt_text = pytesseract.image_to_string(image, config="--psm 4").strip()
+            if len(alt_text) > len(raw_text):
+                raw_text = alt_text
+                config = "--psm 4"
+
+        # Calculate word confidence
         try:
             data = pytesseract.image_to_data(
-                image, output_type=pytesseract.Output.DICT
+                image, output_type=pytesseract.Output.DICT, config=config
             )
-            confidences = [float(c) for c in data.get("conf", []) if float(c) >= 0]
+            confidences = [float(c) for c in data.get("conf", []) if float(c) > 0]
             avg_confidence = (
                 sum(confidences) / len(confidences) / 100.0
                 if confidences
-                else 0.0
+                else (0.85 if raw_text else 0.0)
             )
         except Exception:
-            avg_confidence = 0.5  # Default if data extraction fails
+            avg_confidence = 0.85 if raw_text else 0.0
+
+        return (raw_text, avg_confidence)
 
         return (raw_text, avg_confidence)
 
