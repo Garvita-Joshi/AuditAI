@@ -171,6 +171,65 @@
   border-color: #202020
 }
 
+.p-row-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  flex-wrap: nowrap !important;
+}
+
+.p-row-actions .p-button {
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 7px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #e7e5e4 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.p-row-actions .p-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  color: #fafaf9 !important;
+}
+
+.p-row-actions .p-button.p-review-btn {
+  background: rgba(239, 153, 118, 0.12) !important;
+  border-color: rgba(239, 153, 118, 0.38) !important;
+  color: #ef9976 !important;
+}
+
+.p-row-actions .p-button.p-review-btn:hover:not(:disabled) {
+  background: rgba(239, 153, 118, 0.22) !important;
+  border-color: rgba(239, 153, 118, 0.55) !important;
+  color: #fbd0be !important;
+}
+
+.p-row-actions .p-button.p-delete-request {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  color: #f87171 !important;
+}
+
+.p-row-actions .p-button.p-delete-request:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+}
+
 .p-link {
   display: inline-flex;
   align-items: center;

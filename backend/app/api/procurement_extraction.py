@@ -8,12 +8,15 @@ import os
 import re
 import tempfile
 import uuid as _uuid
+import logging
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+
+logger = logging.getLogger(__name__)
 from backend.app.core.security import require_authenticated_user
 from backend.app.db import get_db
 from backend.app.models.auth import User
@@ -451,6 +454,95 @@ def _infer_category_and_type(items: list[dict], supplier: str) -> tuple[str, str
     return "Goods", "Office supplies"
 
 
+def clean_supplier_brand(name: str) -> str:
+    if not name:
+        return "Verified Supplier"
+    clean = re.sub(r"\([^\)]*\)", "", name)
+    clean = re.sub(r"\b(pvt|ltd|private|limited|inc|corp|corporation|llc|gmbh|co)\b", "", clean, flags=re.I)
+    clean = re.sub(r"[^a-zA-Z0-9\s&]", " ", clean)
+    clean = " ".join(clean.split()).title()
+    if "Makemytrip" in clean:
+        return "MakeMyTrip"
+    return clean or name
+
+
+def clean_item_phrase(desc: str) -> str:
+    if not desc:
+        return ""
+    clean = re.sub(r"\([^\)]*\)", "", desc).strip()
+    return clean.title() or desc
+
+
+def generate_ai_invoice_title(clean_items: list[dict], supplier_name: str, inv_num: str, raw_text: str = "") -> str:
+    """Use Gemini AI (or smart business heuristic) to generate a concise, professional
+
+    corporate procurement requisition title (5 to 8 words).
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        try:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=api_key)
+            items_text = "; ".join(f"{i.get('description', '')} (Qty: {i.get('quantity', 1)})" for i in clean_items[:6])
+            prompt = (
+                "You are an executive procurement AI assistant. Generate a concise, professional "
+                "business procurement requisition title (5 to 8 words maximum) for this invoice.\n"
+                f"Supplier: {supplier_name}\n"
+                f"Invoice Number: {inv_num}\n"
+                f"Items: {items_text}\n\n"
+                "Rules:\n"
+                "- State the primary business purpose/goods clearly, followed by the clean supplier brand in parentheses or em-dash.\n"
+                "- DO NOT include 'Invoice #', raw numbers, or phrases like '(2 items)'.\n"
+                "- Examples: 'Corporate Travel: Flight & Hotel Stay (MakeMyTrip)', 'IT Workstations & Displays (Dell)', 'Executive Team Catering & Meals (Metro Bites)'.\n"
+                "Return ONLY the plain title text on a single line."
+            )
+            res = client.models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=35),
+            )
+            txt = (res.text or "").strip().strip('"\'')
+            if txt and len(txt) >= 6 and not txt.lower().startswith("invoice"):
+                return txt[:140]
+        except Exception as e:
+            logger.warning(f"Gemini title generation failed: {e}")
+
+    # Domain-aware heuristic fallback
+    clean_supp = clean_supplier_brand(supplier_name)
+    all_desc = " ".join((i.get("description") or "").lower() for i in clean_items)
+
+    has_flight = any(k in all_desc for k in ["flight", "air", "airline", "del - blr", "pnr", "indigo"])
+    has_hotel = any(k in all_desc for k in ["hotel", "stay", "night", "lodging", "room"])
+    has_catering = any(k in all_desc for k in ["cater", "meal", "food", "lunch", "dinner", "breakfast", "bites"])
+    has_hardware = any(k in all_desc for k in ["laptop", "monitor", "device", "hardware", "workstation", "thinkpad"])
+    has_software = any(k in all_desc for k in ["software", "license", "cloud", "saas", "subscription", "api"])
+
+    if has_flight and has_hotel:
+        return f"Corporate Travel: Business Flight & Hotel Stay ({clean_supp})"
+    if has_flight:
+        return f"Executive Flight Travel (DEL-BLR) — {clean_supp}"
+    if has_hotel:
+        return f"Corporate Hotel Accommodation — {clean_supp}"
+    if has_catering:
+        return f"Corporate Catering & Team Meals — {clean_supp}"
+    if has_hardware:
+        return f"IT Hardware & Equipment Requisition — {clean_supp}"
+    if has_software:
+        return f"Enterprise Software & Cloud Licensing — {clean_supp}"
+
+    if len(clean_items) == 1:
+        item_title = clean_item_phrase(clean_items[0].get("description") or "Procurement Item")
+        return f"{item_title} — {clean_supp}"
+    if len(clean_items) == 2:
+        i1 = clean_item_phrase(clean_items[0].get("description") or "Item 1")
+        i2 = clean_item_phrase(clean_items[1].get("description") or "Item 2")
+        return f"{i1} & {i2} ({clean_supp})"
+
+    primary = clean_item_phrase(clean_items[0].get("description") or "Corporate Procurement")
+    return f"{primary} & Associated Supplies ({clean_supp})"
+
+
 @router.post("/upload-invoice", status_code=201)
 def upload_invoice(
     file: UploadFile = File(...),
@@ -577,9 +669,7 @@ def upload_invoice(
     ]
 
     if mode == "new" or (mode == "attach" and not target_sr):
-        product_title = f"Invoice {inv_num} — {supplier_name}"
-        if len(clean_items) >= 2:
-            product_title = f"Invoice {inv_num} — {supplier_name} ({len(clean_items)} items)"
+        product_title = generate_ai_invoice_title(clean_items, supplier_name, inv_num, raw_text=ocr_result.get("text", ""))
         req_dict = {
             "product": product_title[:200],
             "category": category,
@@ -641,11 +731,7 @@ def upload_invoice(
 
         merged_sum = sum(float(l.get("quantity") or 1) * float(l.get("unit_price") or 0) for l in merged_lines)
         new_budget = max(float(existing_reqs.get("budget") or 0), float(total_dec), merged_sum)
-        old_product = existing_reqs.get("product") or f"Request SR-{target_sr.id:04d}"
-        if inv_num not in old_product:
-            product_title = f"{old_product} · Invoice {inv_num} ({len(merged_lines)} items)"
-        else:
-            product_title = old_product
+        product_title = generate_ai_invoice_title(merged_lines, supplier_name, inv_num, raw_text=ocr_result.get("text", ""))
 
         req_dict = {
             **existing_reqs,
