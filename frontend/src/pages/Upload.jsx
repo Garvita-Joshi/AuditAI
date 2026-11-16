@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimsApi, fraudApi, receiptsApi, procurementApi } from '../api/client';
 import FileUpload from '../components/FileUpload';
-import MasterDataImport from '../components/MasterDataImport';
 import AutomaticCheckResult from '../components/AutomaticCheckResult';
 import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database } from 'lucide-react';
 import { isReviewer, useAuth } from '../auth/AuthContext';
@@ -413,7 +412,6 @@ export default function Upload() {
       {/* ── SECTION 2: Invoice & Receipt Upload (Two options: Attach or Standalone) ── */}
       <InvoiceUploadSection onUploaded={() => setInvoiceUploaded(true)} />
 
-      {isReviewer(user) && <MasterDataImport/>}
       <AutomaticCheckResult checks={automaticChecks}/>
 
       {isReviewer(user) && (csvUploadState === 'complete' || invoiceUploaded) && (

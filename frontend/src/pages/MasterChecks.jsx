@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, RefreshCw } from 'lucide-react';
+import { CheckCircle2, RefreshCw, Database } from 'lucide-react';
 import { masterDataApi } from '../api/client';
 import CaseEvidence from '../components/CaseEvidence';
 import { evidenceReferences } from '../components/evidenceRecords';
 import { RecordLinksProvider } from '../components/RecordLink';
+import MasterDataImport from '../components/MasterDataImport';
 import './ReviewCases.css';
 
 export default function MasterChecks({ dataset }) {
@@ -13,7 +14,8 @@ export default function MasterChecks({ dataset }) {
     [rule, setRule] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
-    [status, setStatus] = useState([]);
+    [status, setStatus] = useState([]),
+    [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -90,9 +92,14 @@ export default function MasterChecks({ dataset }) {
             <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
             <span>{busy ? 'Working...' : 'Recheck (optional)'}</span>
           </button>
-          <Link className="btn btn-secondary text-xs" to="/upload">
-            Import / update datasets
-          </Link>
+          <button
+            type="button"
+            className="btn btn-secondary text-xs flex items-center gap-1.5"
+            onClick={() => setShowImport((prev) => !prev)}
+          >
+            <Database size={14} />
+            <span>{showImport ? 'Hide Import Tool' : 'Import / Update Datasets'}</span>
+          </button>
         </div>
       </div>
 
@@ -100,12 +107,23 @@ export default function MasterChecks({ dataset }) {
         Findings are review signals, never proof of fraud, based on the imported data only. Checks run automatically when these datasets are uploaded. Synthetic examples demonstrate rules and do not establish real-world performance.
       </p>
 
-      {missing.length > 0 && (
-        <div className="glass-card mb-4 p-3 border-l-4 border-status-warning text-xs" role="status">
-          Import {missing.join(', ')} to enable this check.{' '}
-          <Link to="/upload" className="text-accent-primary underline font-medium ml-1">
-            Open Data Import
-          </Link>
+      {showImport && (
+        <div className="mb-6">
+          <MasterDataImport />
+        </div>
+      )}
+
+      {missing.length > 0 && !showImport && (
+        <div className="glass-card mb-4 p-3 border-l-4 border-status-warning text-xs flex items-center justify-between" role="status">
+          <span>Import {missing.join(', ')} to enable this check.</span>
+          <button
+            type="button"
+            onClick={() => setShowImport(true)}
+            className="text-accent-primary font-medium hover:underline flex items-center gap-1"
+          >
+            <Database size={13} />
+            <span>Open Master Data Ingestion</span>
+          </button>
         </div>
       )}
 
