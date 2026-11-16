@@ -168,6 +168,8 @@ export const procurementApi = {
   paymentStatus: (id) => api.post(`/procurement/invoices/${id}/payment-status`),
   auditLog: (id) => api.get(`/procurement/requests/${id}/audit-log`),
   uploadInvoice: (file, requestId, mode) => { const data = new FormData(); data.append('file', file); if (requestId) data.append('request_id', String(requestId)); data.append('mode', mode || 'attach'); return api.post('/procurement/upload-invoice', data, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000 }); },
+  invoiceApprove: (requestId) => api.post(`/procurement/requests/${requestId}/invoice-approve`),
+  invoicePay: (requestId) => api.post(`/procurement/requests/${requestId}/invoice-pay`),
   requestsIndex: () => api.get('/procurement/requests-index'),
 };
 

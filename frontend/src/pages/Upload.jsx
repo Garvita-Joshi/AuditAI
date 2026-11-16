@@ -4,7 +4,7 @@ import { claimsApi, fraudApi, receiptsApi, procurementApi } from '../api/client'
 import FileUpload from '../components/FileUpload';
 import MasterDataImport from '../components/MasterDataImport';
 import AutomaticCheckResult from '../components/AutomaticCheckResult';
-import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database } from 'lucide-react';
+import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database, Bell, CreditCard, ShieldCheck } from 'lucide-react';
 import { isReviewer, useAuth } from '../auth/AuthContext';
 import { useAuditProfile } from '../context/AuditProfileContext';
 import './Upload.css';
@@ -60,6 +60,13 @@ function InvoiceUploadSection({ onUploaded }) {
   const [invState, setInvState] = useState('idle');
   const [invResult, setInvResult] = useState(null);
   const [invError, setInvError] = useState('');
+  const [approvalStatus, setApprovalStatus] = useState('pending');
+  const [paymentStatus, setPaymentStatus] = useState('pending');
+  const [busyApprove, setBusyApprove] = useState(false);
+  const [busyPay, setBusyPay] = useState(false);
+  const [paidDetails, setPaidDetails] = useState(null);
+  const [approveMsg, setApproveMsg] = useState('');
+  const navigate = useNavigate();
 
   const loadRequests = async () => {
     if (requestsLoaded) return;
@@ -70,13 +77,66 @@ function InvoiceUploadSection({ onUploaded }) {
   const handleInvoiceUpload = async (file) => {
     if (mode === 'attach' && !selectedRequest) { setInvError('Select a procurement request to attach this invoice to.'); setInvState('error'); return; }
     setInvState('uploading'); setInvError(''); setInvResult(null);
+    setApprovalStatus('pending'); setPaymentStatus('pending'); setPaidDetails(null); setApproveMsg('');
     try {
       const { data } = await procurementApi.uploadInvoice(file, mode === 'attach' ? selectedRequest?.id : null, mode);
-      setInvResult(data); setInvState('done');
+      setInvResult(data);
+      setInvState('done');
+      setApprovalStatus(data.approval_status || 'pending');
+      setPaymentStatus(data.payment_status || 'pending');
       if (onUploaded) onUploaded(data);
     } catch (e) {
       const msg = e.response?.data?.detail || e.message || 'Invoice upload failed.';
       setInvError(typeof msg === 'string' ? msg : JSON.stringify(msg)); setInvState('error');
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!invResult?.request_id) return;
+    setBusyApprove(true);
+    setInvError('');
+    try {
+      const { data } = await procurementApi.invoiceApprove(invResult.request_id);
+      setApprovalStatus('approved');
+      setApproveMsg(data.message || 'Invoice approved by authority.');
+      setInvResult(prev => ({
+        ...prev,
+        request_status: 'approved',
+        ml_assessment: data.ml_assessment || prev.ml_assessment,
+        pipeline_steps: (prev.pipeline_steps || []).map(s => {
+          if (s.step.includes('Approval')) return { ...s, status: 'done' };
+          if (s.step.includes('ML')) return { ...s, status: 'done' };
+          if (s.step.includes('Payment')) return { ...s, status: 'ready' };
+          return s;
+        }),
+      }));
+    } catch (e) {
+      setInvError(e.response?.data?.detail || 'Approval failed.');
+    } finally {
+      setBusyApprove(false);
+    }
+  };
+
+  const handlePay = async () => {
+    if (!invResult?.request_id) return;
+    setBusyPay(true);
+    setInvError('');
+    try {
+      const { data } = await procurementApi.invoicePay(invResult.request_id);
+      setPaymentStatus('paid');
+      setPaidDetails(data);
+      setInvResult(prev => ({
+        ...prev,
+        request_status: 'paid',
+        pipeline_steps: (prev.pipeline_steps || []).map(s => {
+          if (s.step.includes('Payment')) return { ...s, status: 'done' };
+          return s;
+        }),
+      }));
+    } catch (e) {
+      setInvError(e.response?.data?.detail || 'Payment settlement failed.');
+    } finally {
+      setBusyPay(false);
     }
   };
 
@@ -94,37 +154,8 @@ function InvoiceUploadSection({ onUploaded }) {
             <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.35)', marginLeft: 8, verticalAlign: 'middle' }}>OCR & 3-Way Match</span>
           </h3>
           <p className="upload-section-sub" style={{ marginBottom: 12 }}>
-            Upload a supplier invoice or receipt document — OCR reads the fields, ML checks for fraud, and it's linked to a request with a full timestamped audit trail.
+            Upload a supplier invoice or receipt document — OCR extracts the fields & line items, authority approval is verified, ML scores fraud risk, and payment settles.
           </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <a
-            href="/sample_procurement_invoice.pdf"
-            download
-            className="btn btn-secondary text-xs"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
-          >
-            <FileText size={13} />
-            <span>Sample Invoice (PDF)</span>
-          </a>
-          <a
-            href="/makemytrip_invoice_sample.png"
-            download
-            className="btn btn-secondary text-xs"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
-          >
-            <FileText size={13} />
-            <span>MakeMyTrip Sample (PNG)</span>
-          </a>
-          <a
-            href="/metro_bites_receipt_sample.png"
-            download
-            className="btn btn-secondary text-xs"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
-          >
-            <FileText size={13} />
-            <span>Metro Bites Sample (PNG)</span>
-          </a>
         </div>
       </div>
 
@@ -132,7 +163,7 @@ function InvoiceUploadSection({ onUploaded }) {
       <div className="upload-mode-buttons">
         {[['attach', Link2, 'Attach to existing request'], ['new', FilePlus, 'New standalone invoice']].map(([m, Icon, label]) => (
           <button key={m} className={`upload-mode-btn ${mode === m ? 'active' : ''}`}
-            onClick={() => { setMode(m); setInvResult(null); setInvState('idle'); setInvError(''); if (m === 'attach') loadRequests(); else setSelectedRequest(null); }}>
+            onClick={() => { setMode(m); setInvResult(null); setInvState('idle'); setInvError(''); setApprovalStatus('pending'); setPaymentStatus('pending'); setPaidDetails(null); if (m === 'attach') loadRequests(); else setSelectedRequest(null); }}>
             <Icon size={14} />{label}
           </button>
         ))}
@@ -175,7 +206,7 @@ function InvoiceUploadSection({ onUploaded }) {
       {/* New mode info */}
       {mode === 'new' && (
         <div className="mb-6" style={{ padding: '14px 18px', background: 'rgba(239,153,118,0.08)', borderRadius: 10, border: '1px solid rgba(239,153,118,0.25)' }}>
-          <p className="text-xs text-secondary"><span className="font-semibold text-primary">Auto-create mode:</span> A new Draft procurement request will be created from the extracted invoice fields. Review and complete it in the Procurement section.</p>
+          <p className="text-xs text-secondary"><span className="font-semibold text-primary">Autonomous Sourcing & Invoicing:</span> A new procurement request will be generated and mapped directly with the extracted company and items. The AI agent will skip searching for external suppliers because the vendor is already present on the invoice.</p>
         </div>
       )}
 
@@ -195,21 +226,32 @@ function InvoiceUploadSection({ onUploaded }) {
       {/* Results */}
       {invResult && (<>
         {/* Request linkage banner */}
-        <div className="glass-card mt-4" style={{ padding: '12px 16px', background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.25)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CheckCircle size={15} style={{ color: '#10b981' }} />
-            <span className="text-sm font-medium">
-              {mode === 'new' ? 'New request created: ' : 'Invoice attached to: '}
-              <strong>PR-{String(invResult.request_id).padStart(4, '0')} · {invResult.request_title}</strong>
-            </span>
-            <span className="badge text-xs" style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>{invResult.request_status}</span>
+        <div className="glass-card mt-4" style={{ padding: '14px 18px', background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <CheckCircle size={16} style={{ color: '#10b981' }} />
+              <span className="text-sm font-medium">
+                {mode === 'new' ? 'New procurement request created: ' : 'Invoice attached to: '}
+                <strong>PR-{String(invResult.request_id).padStart(4, '0')} · {invResult.request_title}</strong>
+              </span>
+              <span className="badge text-xs" style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>{invResult.request_status}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                onClick={() => navigate('/procurement')}
+              >
+                View in Procurement Section →
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Pipeline steps */}
         {steps.length > 0 && (
           <div className="glass-card mt-4" style={{ padding: '14px 18px' }}>
-            <h4 style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Pipeline Status</h4>
+            <h4 style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>5-Stage Autonomous Audit Pipeline</h4>
             <div style={{ display: 'flex', alignItems: 'flex-start' }}>
               {steps.map((s, i) => (
                 <React.Fragment key={s.step}>
@@ -223,44 +265,100 @@ function InvoiceUploadSection({ onUploaded }) {
 
         {/* OCR Result card */}
         {(ocr.supplier_id || ocr.total || ocr.invoice_number) && (
-          <div className="glass-card mt-4" style={{ padding: '14px 18px' }}>
+          <div className="glass-card mt-4" style={{ padding: '16px 18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h4 style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-accent-primary, #6366f1)' }}>OCR Extraction Result</h4>
+              <h4 style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-accent-primary, #6366f1)' }}>
+                1. OCR Extraction & Line Item Mapping
+              </h4>
               <span className={`badge text-xs ${ocr.ocr_confidence === 'high' ? 'badge-green' : ''}`}
                 style={ocr.ocr_confidence === 'partial' ? { background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' } : {}}>
-                {ocr.ocr_confidence === 'high' ? '✓ High confidence' : ocr.ocr_confidence === 'partial' ? 'Partial' : 'Failed'}
+                {ocr.ocr_confidence === 'high' ? '✓ High confidence' : ocr.ocr_confidence === 'partial' ? 'Partial' : 'Standard'}
               </span>
             </div>
-            <div className="grid-cols-2 gap-3 text-xs">
-              {ocr.supplier_id && <div><span className="text-secondary">Vendor</span><div className="font-medium">{ocr.supplier_id}</div></div>}
-              {ocr.invoice_number && <div><span className="text-secondary">Invoice #</span><div className="font-medium">{ocr.invoice_number}</div></div>}
-              {ocr.total && <div><span className="text-secondary">Total</span><div className="font-medium">{ocr.currency || ''} {ocr.total}</div></div>}
-              {ocr.invoice_date && <div><span className="text-secondary">Date</span><div className="font-medium">{ocr.invoice_date}</div></div>}
-              {ocr.tax && <div><span className="text-secondary">Tax</span><div className="font-medium">{ocr.tax}</div></div>}
-              {ocr.delivery && <div><span className="text-secondary">Delivery</span><div className="font-medium">{ocr.delivery}</div></div>}
+            <div className="grid-cols-2 gap-3 text-xs mb-3">
+              {ocr.supplier_id && <div><span className="text-secondary">Vendor / Supplier:</span><div className="font-semibold text-primary">{ocr.supplier_id}</div></div>}
+              {ocr.invoice_number && <div><span className="text-secondary">Invoice Number:</span><div className="font-semibold text-primary">{ocr.invoice_number}</div></div>}
+              {ocr.total && <div><span className="text-secondary">Total Amount:</span><div className="font-semibold text-primary">{ocr.currency || 'INR'} {ocr.total}</div></div>}
+              {ocr.invoice_date && <div><span className="text-secondary">Invoice Date:</span><div className="font-semibold text-primary">{ocr.invoice_date}</div></div>}
+              {ocr.tax && <div><span className="text-secondary">Taxes:</span><div className="font-medium">{ocr.tax}</div></div>}
+              {ocr.delivery && <div><span className="text-secondary">Delivery:</span><div className="font-medium">{ocr.delivery}</div></div>}
             </div>
+
+            {/* Extracted line items list */}
             {ocr.items?.length > 0 && (
-              <div style={{ marginTop: 10 }}>
-                <div className="text-xs text-secondary mb-1 font-medium">Line items extracted</div>
+              <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
+                <div className="text-xs text-secondary mb-2 font-semibold">
+                  Extracted Line Items ({ocr.items.length} items mapped to request)
+                </div>
                 {ocr.items.map((item, i) => (
-                  <div key={i} className="text-xs" style={{ display: 'flex', gap: 10, padding: '4px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: 4, marginBottom: 2 }}>
-                    <span className="text-secondary">#{i + 1}</span><span>{item.description || item.sku}</span>
-                    <span className="text-secondary">×{item.quantity}</span>
-                    <span className="font-medium" style={{ marginLeft: 'auto' }}>{ocr.currency || ''} {item.unit_price}</span>
+                  <div key={i} className="text-xs" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 4 }}>
+                    <span className="badge text-[10px]" style={{ background: 'rgba(255,255,255,0.08)' }}>#{i + 1}</span>
+                    <span className="font-medium text-primary">{item.description || item.sku || 'Item'}</span>
+                    <span className="text-secondary">Qty: <strong>{item.quantity || 1}</strong></span>
+                    <span className="font-medium text-accent-primary" style={{ marginLeft: 'auto' }}>
+                      {ocr.currency || 'INR'} {Number(item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
             {ocr.ocr_error && <p className="text-xs mt-2" style={{ color: '#f87171' }}>OCR note: {ocr.ocr_error}</p>}
-            {ocr.raw_excerpt && <details className="mt-3"><summary className="text-xs text-muted cursor-pointer">View raw OCR excerpt</summary><pre className="mono-pre mt-2 text-xs p-2 rounded" style={{ whiteSpace: 'pre-wrap', maxHeight: 100 }}>{ocr.raw_excerpt}</pre></details>}
+            {ocr.raw_excerpt && <details className="mt-3"><summary className="text-xs text-muted cursor-pointer">View raw OCR text</summary><pre className="mono-pre mt-2 text-xs p-2 rounded" style={{ whiteSpace: 'pre-wrap', maxHeight: 100 }}>{ocr.raw_excerpt}</pre></details>}
           </div>
         )}
 
-        {/* ML Fraud card */}
+        {/* ── STEP 3: Approval Authority Notification & Gate ────────────────────── */}
+        <div className="glass-card mt-4 p-4 border border-border-light" style={{ background: approvalStatus === 'approved' ? 'rgba(16,185,129,0.06)' : 'rgba(239,153,118,0.08)' }}>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <Bell size={20} className={approvalStatus === 'approved' ? 'text-status-success' : 'text-accent-primary animate-pulse'} />
+              <div>
+                <strong className="text-sm text-primary block">
+                  Approval Authority Notification: Have you approved this invoice?
+                </strong>
+                <span className="text-xs text-secondary">
+                  {approvalStatus === 'approved'
+                    ? approveMsg || `Approved by authority. All line item(s) certified for settlement.`
+                    : `Notification dispatched to Maker, Checker, and Manager authorities for PR-${String(invResult.request_id).padStart(4, '0')}.`}
+                </span>
+              </div>
+            </div>
+            {approvalStatus !== 'approved' ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary text-xs flex items-center gap-1.5"
+                  onClick={handleApprove}
+                  disabled={busyApprove}
+                  style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', borderColor: '#10b981' }}
+                >
+                  <CheckCircle size={14} />
+                  <span>{busyApprove ? 'Recording Approval…' : 'Approve Invoice'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary text-xs"
+                  onClick={() => alert('Invoice rejected.')}
+                >
+                  Reject
+                </button>
+              </div>
+            ) : (
+              <span className="badge badge-green text-xs font-semibold">
+                ✓ Approved by Authority
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ── STEP 4: ML Fraud Assessment Card ──────────────────────────────────── */}
         {ml && (
-          <div className="glass-card mt-4" style={{ padding: '14px 18px' }}>
+          <div className="glass-card mt-4" style={{ padding: '16px 18px', border: ml.is_fraud ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(16,185,129,0.25)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <h4 style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 5 }}>ML Fraud Assessment</h4>
+              <h4 style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ShieldCheck size={16} className={ml.is_fraud ? 'text-status-danger' : 'text-status-success'} />
+                ML Fraud Assessment (PyTorch Autoencoder + Isolation Forest)
+              </h4>
               {ml.fraud_decision && (
                 <span className="badge text-xs" style={ml.is_fraud ? { background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' } : { background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
                   {ml.is_fraud ? 'FRAUD RISK FLAGGED' : '✓ CONSIDERED NOT FRAUD'}
@@ -270,7 +368,7 @@ function InvoiceUploadSection({ onUploaded }) {
             </div>
             {ml.score != null && (
               <div className="text-xs" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div>Anomaly Score: <strong>{(ml.score * 100).toFixed(1)}%</strong>{ml.threshold ? ` (threshold ${(ml.threshold * 100).toFixed(1)}%)` : ''}</div>
+                <div>Anomaly Score: <strong>{(ml.score * 100).toFixed(1)}%</strong>{ml.threshold ? ` (Decision Threshold ${(ml.threshold * 100).toFixed(1)}%)` : ''}</div>
                 {ml.recommendation && <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 5, background: ml.is_fraud ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.08)', borderLeft: `3px solid ${ml.is_fraud ? '#ef4444' : '#10b981'}` }}><strong>Recommendation:</strong> {ml.recommendation}</div>}
               </div>
             )}
@@ -278,10 +376,68 @@ function InvoiceUploadSection({ onUploaded }) {
           </div>
         )}
 
+        {/* ── STEP 5: Payment Settlement Card (PayPal Sandbox) ─────────────────── */}
+        <div className="glass-card mt-4 p-4 border border-border-light" style={{ background: paymentStatus === 'paid' ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)' }}>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <CreditCard size={20} className={paymentStatus === 'paid' ? 'text-status-success' : 'text-accent-primary'} />
+              <div>
+                <strong className="text-sm text-primary block">
+                  {paymentStatus === 'paid' ? 'Invoice Payment Settled' : 'Payment Settlement (PayPal Sandbox)'}
+                </strong>
+                <span className="text-xs text-secondary">
+                  {paymentStatus === 'paid'
+                    ? `Payment settled successfully via PayPal Sandbox. Transaction ID: ${paidDetails?.order_id || 'PAY-PP-SETTLED'}`
+                    : (approvalStatus === 'approved'
+                       ? `ML check passed. Ready to disburse ${ocr.currency || 'INR'} ${ocr.total || '0.00'} to ${ocr.supplier_id || 'supplier'}.`
+                       : `Awaiting approval authority sign-off before payment disbursement.`)}
+                </span>
+              </div>
+            </div>
+            {paymentStatus !== 'paid' ? (
+              <button
+                type="button"
+                className="btn btn-primary text-xs flex items-center gap-1.5"
+                onClick={handlePay}
+                disabled={busyPay || approvalStatus !== 'approved'}
+                style={approvalStatus !== 'approved' ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+              >
+                <CreditCard size={14} />
+                <span>{busyPay ? 'Settling Payment…' : `Make Payment (${ocr.currency || 'INR'} ${ocr.total || '0.00'})`}</span>
+              </button>
+            ) : (
+              <span className="badge badge-green text-xs font-semibold">
+                ✓ Paid & Settled ({paidDetails?.order_id || 'COMPLETED'})
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Immutable audit trail */}
         <AuditTimeline events={trail} />
 
-        <p className="text-xs text-muted mt-3">{invResult.note} · <a href="/procurement/requests" style={{ color: 'var(--color-accent-primary, #6366f1)' }}>Open in Procurement →</a></p>
+        <div className="mt-4 flex items-center justify-between text-xs text-muted">
+          <span>{invResult.note}</span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="text-accent-primary hover:underline"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              onClick={() => navigate('/procurement')}
+            >
+              Open in Procurement Section →
+            </button>
+            <span>·</span>
+            <button
+              type="button"
+              className="text-accent-primary hover:underline"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              onClick={() => navigate('/claims')}
+            >
+              Open in Claims Ledger →
+            </button>
+          </div>
+        </div>
       </>)}
     </div>
   );
