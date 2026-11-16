@@ -51,7 +51,7 @@ function AuditTimeline({ events }) {
   );
 }
 
-function InvoiceUploadSection() {
+function InvoiceUploadSection({ onUploaded }) {
   const [mode, setMode] = useState('attach');
   const [requests, setRequests] = useState([]);
   const [requestsLoaded, setRequestsLoaded] = useState(false);
@@ -73,6 +73,7 @@ function InvoiceUploadSection() {
     try {
       const { data } = await procurementApi.uploadInvoice(file, mode === 'attach' ? selectedRequest?.id : null, mode);
       setInvResult(data); setInvState('done');
+      if (onUploaded) onUploaded(data);
     } catch (e) {
       const msg = e.response?.data?.detail || e.message || 'Invoice upload failed.';
       setInvError(typeof msg === 'string' ? msg : JSON.stringify(msg)); setInvState('error');
@@ -85,14 +86,49 @@ function InvoiceUploadSection() {
   const trail = invResult?.audit_trail || [];
 
   return (
-    <div className="upload-section-card mb-6" style={{ marginTop: 28 }}>
-      <h3 id="invoice-import" className="upload-section-title">
-        3. Invoice Upload
-        <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.35)', marginLeft: 10, verticalAlign: 'middle' }}>Procurement</span>
-      </h3>
-      <p className="upload-section-sub">Upload a supplier invoice — OCR reads the fields, ML checks for fraud, and it's linked to a request with a full timestamped audit trail.</p>
+    <div className="upload-section-card mb-6">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+        <div>
+          <h3 id="invoice-import" className="upload-section-title">
+            2. Upload Invoice & Receipt
+            <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.35)', marginLeft: 8, verticalAlign: 'middle' }}>OCR & 3-Way Match</span>
+          </h3>
+          <p className="upload-section-sub" style={{ marginBottom: 12 }}>
+            Upload a supplier invoice or receipt document — OCR reads the fields, ML checks for fraud, and it's linked to a request with a full timestamped audit trail.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <a
+            href="/sample_procurement_invoice.pdf"
+            download
+            className="btn btn-secondary text-xs"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
+          >
+            <FileText size={13} />
+            <span>Sample Invoice (PDF)</span>
+          </a>
+          <a
+            href="/makemytrip_invoice_sample.png"
+            download
+            className="btn btn-secondary text-xs"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
+          >
+            <FileText size={13} />
+            <span>MakeMyTrip Sample (PNG)</span>
+          </a>
+          <a
+            href="/metro_bites_receipt_sample.png"
+            download
+            className="btn btn-secondary text-xs"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
+          >
+            <FileText size={13} />
+            <span>Metro Bites Sample (PNG)</span>
+          </a>
+        </div>
+      </div>
 
-      {/* Mode selector */}
+      {/* Mode selector: Exactly two options */}
       <div className="upload-mode-buttons">
         {[['attach', Link2, 'Attach to existing request'], ['new', FilePlus, 'New standalone invoice']].map(([m, Icon, label]) => (
           <button key={m} className={`upload-mode-btn ${mode === m ? 'active' : ''}`}
@@ -255,12 +291,10 @@ function InvoiceUploadSection() {
 
 export default function Upload() {
   const [csvUploadState, setCsvUploadState] = useState('idle');
-  const [rcpUploadState, setRcpUploadState] = useState('idle');
-  const [rcpClaimId, setRcpClaimId] = useState('');
-  const [receiptData, setReceiptData] = useState(null);
+  const [invoiceUploaded, setInvoiceUploaded] = useState(false);
   const [message, setMessage] = useState(null);
   const [scoring, setScoring] = useState(false);
-  const [automaticChecks,setAutomaticChecks]=useState(null);
+  const [automaticChecks, setAutomaticChecks] = useState(null);
 
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -286,34 +320,6 @@ export default function Upload() {
     }
   };
 
-  const handleReceiptUpload = async (file) => {
-    if (!rcpClaimId.trim()) {
-      setRcpUploadState('error');
-      setMessage({ type: 'error', text: 'Enter the existing Target Claim ID before uploading a receipt so the OCR evidence can be linked and scored.' });
-      return;
-    }
-    setRcpUploadState('processing');
-    setMessage(null);
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const res = await claimsApi.uploadReceipt(rcpClaimId, formData);
-      if (res.data.upload_status !== 'processed') {
-        throw new Error('Receipt saved, but OCR could not read it. Try a clearer single-page image or PDF.');
-      }
-      setAutomaticChecks(res.data.checks);
-      const receiptResponse = await receiptsApi.get(res.data.receipt_id);
-      setReceiptData(receiptResponse.data);
-      setRcpUploadState('complete');
-      setMessage({ type: 'success', text: `Receipt processed: ${res.data.receipt_id}. OCR fields are shown below. Relevant checks ran automatically. See the check status below.` });
-    } catch (err) {
-      console.error(err);
-      setRcpUploadState('error');
-      setMessage({ type: 'error', text: err.response?.data?.detail || err.message || "Receipt upload failed." });
-    }
-  };
-
   const runScoring = async () => {
     setScoring(true);
     setMessage({ type: 'info', text: 'Running Autoencoder + Isolation Forest scoring pipeline...' });
@@ -322,7 +328,7 @@ export default function Upload() {
       if (!res.data.scored_count) {
         setMessage({
           type: 'error',
-          text: 'No pending claims were found to score. Upload a claims file or attach the receipt to a valid Target Claim ID first.'
+          text: 'No pending claims were found to score. Upload a claims file or attach an invoice first.'
         });
         return;
       }
@@ -373,71 +379,44 @@ export default function Upload() {
         </div>
       )}
 
-      {/* Main Upload Cards */}
-      <div className="grid-cols-2 mb-6">
-        <div className="glass-card">
-          <h3 id="expense-import" className="text-lg font-semibold mb-1">1. Upload Expense Claims</h3>
-          <p className="text-secondary text-xs mb-5">Upload employee expense claim CSV records for ML anomaly scoring.</p>
-
-          <FileUpload
-            label="Upload claims.csv"
-            accept=".csv,.json"
-            onUpload={handleCsvUpload}
-            uploadState={csvUploadState}
-          />
-        </div>
-
-        <div className="glass-card">
-          <h3 id="receipt-import" className="text-lg font-semibold mb-1">2. Upload Receipt (Optional)</h3>
-          <p className="text-secondary text-xs mb-5">Attach an invoice or receipt image to an existing claim for OCR text & amount extraction.</p>
-
-          <div className="mb-4">
-            <label className="text-xs text-secondary mb-1 block font-medium">Target Claim ID</label>
-            <input
-              type="text"
-              className="input text-sm"
-              placeholder="e.g. CLM-00001"
-              value={rcpClaimId}
-              onChange={(e) => setRcpClaimId(e.target.value)}
-            />
+      {/* ── SECTION 1: Expense Claims CSV ─────────────────────────────────── */}
+      <div className="upload-section-card mb-6">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+          <div>
+            <h3 id="expense-import" className="upload-section-title">
+              1. Upload Expense Claims
+              <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.35)', marginLeft: 8, verticalAlign: 'middle' }}>Claims CSV</span>
+            </h3>
+            <p className="upload-section-sub" style={{ marginBottom: 16 }}>
+              Upload employee expense claim CSV records for automated compliance screening and ML anomaly scoring.
+            </p>
           </div>
-
-          <FileUpload
-            label="Upload receipt image/PDF"
-            accept="image/*,application/pdf"
-            onUpload={handleReceiptUpload}
-            uploadState={rcpUploadState}
-          />
-
-          {receiptData?.ocr_result && (
-            <div className="glass-card mt-5" style={{ padding: '16px' }}>
-              <div className="flex justify-between items-center mb-3">
-                <h4 className="font-semibold text-accent-primary text-sm">OCR Extraction Result</h4>
-                <span className="badge badge-green text-xs">Processed</span>
-              </div>
-              <div className="grid-cols-2 gap-3 text-xs">
-                <div><span className="text-secondary">Vendor:</span> <div className="font-medium text-primary">{receiptData.ocr_result.extracted_vendor || 'Not detected'}</div></div>
-                <div><span className="text-secondary">Amount:</span> <div className="font-medium text-primary">{receiptData.ocr_result.extracted_amount != null ? `₹${Number(receiptData.ocr_result.extracted_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : 'Not detected'}</div></div>
-                <div><span className="text-secondary">Date:</span> <div className="font-medium text-primary">{receiptData.ocr_result.extracted_date || 'Not detected'}</div></div>
-                <div><span className="text-secondary">Confidence:</span> <div className="font-medium text-primary">{receiptData.ocr_result.extraction_confidence != null ? `${Math.round(receiptData.ocr_result.extraction_confidence * 100)}%` : 'Not available'}</div></div>
-              </div>
-              {receiptData.ocr_result.raw_ocr_text && (
-                <details className="mt-3">
-                  <summary className="text-xs text-muted cursor-pointer hover:text-secondary">View raw OCR text</summary>
-                  <pre className="mono-pre mt-2 text-xs p-2 rounded" style={{ whiteSpace: 'pre-wrap', maxHeight: '120px' }}>{receiptData.ocr_result.raw_ocr_text}</pre>
-                </details>
-              )}
-            </div>
-          )}
+          <a
+            href="/sample-claims.csv"
+            download
+            className="btn btn-secondary text-xs"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 12px' }}
+          >
+            <FileText size={13} />
+            <span>Download Sample Claims (CSV)</span>
+          </a>
         </div>
+
+        <FileUpload
+          label="Upload claims.csv or .json"
+          accept=".csv,.json"
+          onUpload={handleCsvUpload}
+          uploadState={csvUploadState}
+        />
       </div>
 
-      <InvoiceUploadSection />
+      {/* ── SECTION 2: Invoice & Receipt Upload (Two options: Attach or Standalone) ── */}
+      <InvoiceUploadSection onUploaded={() => setInvoiceUploaded(true)} />
 
       {isReviewer(user) && <MasterDataImport/>}
       <AutomaticCheckResult checks={automaticChecks}/>
 
-      {isReviewer(user) && (csvUploadState === 'complete' || rcpUploadState === 'complete') && (
+      {isReviewer(user) && (csvUploadState === 'complete' || invoiceUploaded) && (
         <div className="glass-card mb-6 flex items-center justify-between gap-5" style={{ padding: '18px 24px' }}>
           <div>
             <h3 className="font-semibold text-sm">Automated screening triggers after upload</h3>
@@ -461,9 +440,9 @@ export default function Upload() {
         <div className="pipeline-steps-grid">
           {[
             { num: 1, label: 'Data Ingestion', sub: 'CSV & Ledger sync', state: csvUploadState === 'complete' ? 'complete' : 'ready' },
-            { num: 2, label: 'OCR Extraction', sub: 'Field & amount parsing', state: rcpUploadState === 'complete' ? 'complete' : 'ready' },
-            { num: 3, label: 'Feature Engineering', sub: 'Anomaly indicator build', state: (csvUploadState === 'complete' || rcpUploadState === 'complete') ? 'ready' : 'standby' },
-            { num: 4, label: 'ML Scoring', sub: 'Fraud & risk inference', state: (csvUploadState === 'complete' || rcpUploadState === 'complete') ? 'ready' : 'standby' },
+            { num: 2, label: 'OCR Extraction', sub: 'Field & amount parsing', state: invoiceUploaded ? 'complete' : 'ready' },
+            { num: 3, label: 'Feature Engineering', sub: 'Anomaly indicator build', state: (csvUploadState === 'complete' || invoiceUploaded) ? 'ready' : 'standby' },
+            { num: 4, label: 'ML Scoring', sub: 'Fraud & risk inference', state: (csvUploadState === 'complete' || invoiceUploaded) ? 'ready' : 'standby' },
           ].map(s => (
             <div key={s.num} className={`pipeline-step-item ${s.state}`}>
               <div className="step-num">{s.state === 'complete' ? '✓' : `0${s.num}`}</div>
