@@ -277,9 +277,9 @@ function InvoiceUploadSection({ onUploaded }) {
               <button
                 type="button"
                 className="btn btn-primary text-xs"
-                onClick={() => navigate(`/procurement?newRequest=new&requestId=${srId}&intakeStep=2`)}
+                onClick={() => navigate(`/procurement/invoice-review/${srId}`)}
               >
-                Open Request & Approval Map in Procurement →
+                Open Dedicated Invoice Review &amp; Mind Map →
               </button>
               <button
                 type="button"
@@ -349,178 +349,52 @@ function InvoiceUploadSection({ onUploaded }) {
           </div>
         )}
 
-        {/* ── STAGE 3: Respective Approval Authorities Notification & Sign-Off Queue ── */}
-        <div className="glass-card mt-4 p-4 border border-border-light" style={{ background: allApproved ? 'rgba(16,185,129,0.06)' : 'rgba(239,153,118,0.07)' }}>
-          <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
-            <div className="flex items-center gap-3">
-              <Bell size={20} className={allApproved ? 'text-status-success' : 'text-accent-primary'} />
-              <div>
-                <strong className="text-sm text-primary block">
-                  Stage 3 · Respective Approval Authorities Notified ({approvedCount} / {authorities.length} Approved)
-                </strong>
-                <span className="text-xs text-secondary">
-                  {allApproved
-                    ? 'All respective approval authorities have approved this invoice! Stage 4 (Final Check to ML Model) is now unlocked below.'
-                    : 'Each respective approval authority received "Have you approved this invoice?" in the AuditAI window. Every authority must approve their checkpoint before the Final ML Check and Payment unlock.'}
-                </span>
-              </div>
+        {/* ── Sourcing Request Created & Dedicated Review Navigation ── */}
+        <div className="glass-card mt-4 p-5 border border-border-light" style={{ background: 'linear-gradient(135deg, rgba(34,28,25,0.96) 0%, rgba(22,19,17,0.96) 100%)', borderColor: 'rgba(239,153,118,0.38)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+              <CheckCircle size={22} style={{ color: '#10b981' }} />
             </div>
-            <button
-              type="button"
-              className="btn btn-secondary text-xs"
-              onClick={() => navigate(`/procurement?newRequest=new&requestId=${srId}&intakeStep=2`)}
-            >
-              Review on Approval Mind Map →
-            </button>
-          </div>
-
-          {approveMsg && (
-            <div className="text-xs mb-3 p-2.5 rounded" style={{ background: 'rgba(16,185,129,0.12)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
-              {approveMsg}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gap: 8 }}>
-            {authorities.map((auth) => {
-              const isDone = auth.status === 'approved';
-              return (
-                <div key={auth.node_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, padding: '10px 14px', borderRadius: 8, background: isDone ? 'rgba(16,185,129,0.08)' : 'rgba(0,0,0,0.25)', border: isDone ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)' }}>
-                  <div>
-                    <div className="text-xs font-semibold text-primary">
-                      {auth.step_index}. {auth.label} <span style={{ color: '#ef9976' }}>· {auth.owner_group}</span>
-                    </div>
-                    <div className="text-xs text-secondary mt-0.5">
-                      Assigned Authority: <strong>{auth.assignee_name}</strong> ({auth.assignee_email}) · <em>"{auth.question}"</em>
-                    </div>
-                  </div>
-                  {isDone ? (
-                    <span className="badge badge-green text-xs font-semibold">
-                      ✓ Approved by {auth.owner_group}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary text-xs flex items-center gap-1.5"
-                      disabled={busyNodeId === auth.node_id}
-                      onClick={() => handleApproveAuthority(auth.node_id, auth.label, auth.owner_group)}
-                    >
-                      <CheckCircle size={13} />
-                      <span>{busyNodeId === auth.node_id ? 'Approving…' : `Approve as ${auth.owner_group}`}</span>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── STAGE 4: Final Check Sent to ML Model (Gated by Authority Approval) ── */}
-        <div className="glass-card mt-4" style={{ padding: '16px 18px', border: ml ? (ml.is_fraud ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(16,185,129,0.25)') : '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: ml ? 8 : 0 }}>
-            <div className="flex items-center gap-3">
-              <ShieldCheck size={18} className={ml ? (ml.is_fraud ? 'text-status-danger' : 'text-status-success') : 'text-secondary'} />
-              <div>
-                <h4 style={{ fontWeight: 600, fontSize: 13 }}>
-                  Stage 4 · Final Check Sent to ML Model (PyTorch Autoencoder + Isolation Forest)
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fafaf9' }}>
+                  {mode === 'new' ? 'Sourcing Request Created Successfully' : 'Request Updated with Invoice'}
                 </h4>
-                <span className="text-xs text-secondary">
-                  {!allApproved
-                    ? `🔒 Locked — All ${authorities.length} respective approval authorities must approve Stage 3 first (${approvedCount}/${authorities.length} approved).`
-                    : ml
-                    ? `Evaluated against historical procurement baselines and synced to Claims Ledger (INV-SR-${String(srId).padStart(4, '0')}).`
-                    : 'All respective authorities have approved! Click to send this invoice to the ML Model for the final fraud check.'}
+                <span className="badge" style={{ background: 'rgba(239,153,118,0.2)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.45)', fontWeight: 800, fontSize: 12 }}>
+                  {invResult.request_ref || `SR-${String(srId).padStart(4, '0')}`}
                 </span>
               </div>
-            </div>
-            {!ml ? (
-              <button
-                type="button"
-                className="btn btn-primary text-xs flex items-center gap-1.5"
-                disabled={!allApproved || busyMl}
-                onClick={handleRunFinalMl}
-                style={!allApproved ? { opacity: 0.45, cursor: 'not-allowed' } : {}}
-              >
-                <ShieldCheck size={14} />
-                <span>{busyMl ? 'Running ML Fraud Check…' : 'Send to ML Model for Final Check'}</span>
-              </button>
-            ) : (
-              <span className="badge text-xs" style={ml.is_fraud ? { background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' } : { background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
-                {ml.is_fraud ? 'FRAUD RISK FLAGGED' : '✓ CONSIDERED NOT FRAUD'}
-              </span>
-            )}
-          </div>
-          {ml && ml.score != null && (
-            <div className="text-xs mt-2" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div>Combined Anomaly Score: <strong>{(ml.score * 100).toFixed(1)}%</strong>{ml.threshold ? ` (Decision Threshold ${(ml.threshold * 100).toFixed(1)}%)` : ''} · Autoencoder: <strong>{((ml.autoencoder_percentile || 0) * 100).toFixed(1)}%</strong> · Isolation Forest: <strong>{((ml.isolation_forest_percentile || 0) * 100).toFixed(1)}%</strong></div>
-              {ml.recommendation && <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 5, background: ml.is_fraud ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.08)', borderLeft: `3px solid ${ml.is_fraud ? '#ef4444' : '#10b981'}` }}><strong>ML Verdict:</strong> {ml.recommendation}</div>}
-            </div>
-          )}
-        </div>
-
-        {/* ── STAGE 5: Make Payment (PayPal Sandbox Settlement — Gated by Authority + ML) ── */}
-        <div className="glass-card mt-4 p-4 border border-border-light" style={{ background: paymentStatus === 'paid' ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)' }}>
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <CreditCard size={20} className={paymentStatus === 'paid' ? 'text-status-success' : 'text-accent-primary'} />
-              <div>
-                <strong className="text-sm text-primary block">
-                  {paymentStatus === 'paid' ? 'Stage 5 · Invoice Payment Settled' : 'Stage 5 · Make Payment (PayPal Sandbox Settlement)'}
-                </strong>
-                <span className="text-xs text-secondary">
-                  {paymentStatus === 'paid'
-                    ? `Payment settled via PayPal Sandbox. Transaction ID: ${paidDetails?.order_id || 'PAY-PP-SETTLED'}`
-                    : !allApproved
-                    ? '🔒 Locked — Waiting for respective approval authorities to approve Stage 3.'
-                    : !ml
-                    ? '🔒 Locked — Run Stage 4 (Final Check to ML Model) before making payment.'
-                    : ml.is_fraud
-                    ? '⛔ Blocked — ML Fraud Model flagged this invoice.'
-                    : `✓ Authorities approved & ML Fraud Check passed! Ready to disburse ${ocr.currency || 'INR'} ${ocr.total || '0.00'} to ${ocr.supplier_id || 'supplier'}.`}
-                </span>
+              <p style={{ margin: '0 0 16px 0', fontSize: 13, color: '#d6d3d1', lineHeight: 1.55 }}>
+                The request for this invoice has been created: <strong>{invResult.request_ref || `SR-${String(srId).padStart(4, '0')}`} · {invResult.request_title}</strong>.
+                Approval notifications were dispatched to each respective authority (Procurement Team, Requesting Department, Legal, Finance, Accounts Payable, IT) in the AuditAI window.
+                Open the dedicated review page to inspect itemized mind maps, review authority sign-offs, run the final ML check, and settle payment.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ background: '#ef9976', color: '#14100c', fontWeight: 800, border: 'none', padding: '10px 20px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                  onClick={() => navigate(`/procurement/invoice-review/${srId}`)}
+                >
+                  <span>Open Dedicated Invoice Review &amp; Mind Map</span>
+                  <ArrowRight size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary text-xs"
+                  onClick={() => navigate(`/claims/INV-SR-${String(srId).padStart(4, '0')}`)}
+                >
+                  View in Claims Ledger →
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary text-xs"
+                  onClick={() => { setInvResult(null); setInvState('idle'); setFile(null); }}
+                >
+                  Upload Another Invoice
+                </button>
               </div>
             </div>
-            {paymentStatus !== 'paid' ? (
-              <button
-                type="button"
-                className="btn btn-primary text-xs flex items-center gap-1.5"
-                onClick={handlePay}
-                disabled={busyPay || !allApproved || !ml || ml.is_fraud}
-                style={(!allApproved || !ml || ml.is_fraud) ? { opacity: 0.45, cursor: 'not-allowed' } : {}}
-              >
-                <CreditCard size={14} />
-                <span>{busyPay ? 'Settling Payment…' : `Make Payment (${ocr.currency || 'INR'} ${ocr.total || '0.00'})`}</span>
-              </button>
-            ) : (
-              <span className="badge badge-green text-xs font-semibold">
-                ✓ Paid & Settled ({paidDetails?.order_id || 'COMPLETED'})
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Immutable audit trail */}
-        <AuditTimeline events={trail} />
-
-        <div className="mt-4 flex items-center justify-between text-xs text-muted">
-          <span>{invResult.note}</span>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="text-accent-primary hover:underline"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              onClick={() => navigate(`/procurement?newRequest=new&requestId=${srId}&intakeStep=2`)}
-            >
-              Open Request Map in Procurement →
-            </button>
-            <span>·</span>
-            <button
-              type="button"
-              className="text-accent-primary hover:underline"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              onClick={() => navigate('/claims')}
-            >
-              Open in Claims Ledger →
-            </button>
           </div>
         </div>
       </>)}

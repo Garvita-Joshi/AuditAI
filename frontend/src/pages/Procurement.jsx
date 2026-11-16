@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Plus, X, Check, Clock3, FileText, Upload, ShieldCheck, AlertTriangle, Search, MessageSquare, Download, Building2, ChevronRight, RefreshCw, Sparkles, Pencil, Trash2, RotateCcw, Clock, Bell } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Plus, X, Check, Clock3, FileText, Upload, ShieldCheck, AlertTriangle, Search, MessageSquare, Download, Building2, ChevronRight, RefreshCw, Sparkles, Pencil, Trash2, RotateCcw, Clock, Bell, Network } from 'lucide-react';
 import { procurementApi } from '../api/client';
 import './Procurement.css';
 import Sourcing from './Sourcing';
@@ -150,6 +150,10 @@ export default function Procurement({ user }) {
     if (row.status === 'deleted' || row.status === 'permanently_deleted') return;
     if (row.kind === 'sourcing') {
       window.location.hash = '';
+      if (row.workspace?.workflow?.invoice_ocr_details?.is_invoice_upload || row.requirements?.is_invoice_upload) {
+        navigate(`/procurement/invoice-review/${row.id}`);
+        return;
+      }
       const targetStep = row.intake_step != null ? row.intake_step : (row.workspace?.step ?? 0);
       navigate(`${location.pathname}?newRequest=new&requestId=${row.id}&intakeStep=${targetStep}`);
     } else {
@@ -186,6 +190,9 @@ export default function Procurement({ user }) {
     <td>{r.terms.supplier_id || 'AI sourcing'}</td><td>{r.details?.department || 'Operations'}</td><td className="p-numeric">{money(r.total, r.terms.currency)}{r.kind === 'sourcing' && <small className="p-record-estimate">Estimated line total</small>}</td>
     <td><span className={`p-badge p-${r.status}`}>{sourcingStatus(r.status)}</span>{r.progress?.vendors > 0 && <small className="p-status-caption">{r.progress.replies}/{r.progress.vendors} replies · {r.progress.pending} pending{r.progress.attention ? ` · ${r.progress.attention} need attention` : ''}</small>}{r.kind === 'purchase' && r.approval_steps?.find(s => ['ready', 'in_progress'].includes(s.status)) && <small className="p-status-caption">{r.approval_steps.find(s => ['ready', 'in_progress'].includes(s.status)).name}</small>}</td>
     <td><div className="p-row-actions">{r.status === 'deleted' || r.status === 'permanently_deleted' ? <span className="p-badge p-permanently-deleted">Permanently Deleted</span> : <>
+      {(r.workspace?.workflow?.invoice_ocr_details?.is_invoice_upload || r.requirements?.is_invoice_upload) && (
+        <button className="p-button cv-audit-btn" onClick={() => navigate(`/procurement/invoice-review/${r.id}`)} title="Open dedicated invoice review & mind map" style={{ borderColor: 'rgba(239, 153, 118, 0.4)', color: '#ef9976' }}><Network size={13} />Invoice Review</button>
+      )}
       <button className="p-icon" onClick={() => openRecord(r)} aria-label={`Open ${r.title}`} title="Open request mind map"><ChevronRight size={17} /></button>
       <button className="p-button cv-audit-btn" onClick={() => setAuditLogTarget(r)} title="View immutable chronological audit time log trail"><Clock size={13} />Audit Log</button>
       <button className="p-button" disabled={busy || r.can_edit === false} title={r.can_edit === false ? 'Only the owner can edit, before approvals begin.' : 'Edit saved form details'} aria-label={`Edit ${r.title}`} onClick={() => editRecord(r)}><Pencil size={13} />Edit form</button>

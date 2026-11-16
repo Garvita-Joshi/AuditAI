@@ -10,6 +10,7 @@ import ClaimDetail from './pages/ClaimDetail';
 import AuditScreens from './pages/AuditScreens';
 import Login from './pages/Login';
 import Procurement from './pages/Procurement';
+import InvoiceReviewPage from './pages/InvoiceReviewPage';
 import './pages/UnifiedTheme.css';
 function ProcurementWorkspace(){const {user}=useAuth();return <Procurement user={user}/>;}
 function OtpLogin(){const {user,authenticate}=useAuth();return user?<Navigate to="/procurement" replace/>:<Login onAuthenticated={authenticate}/>;}
@@ -90,6 +91,7 @@ export default function App() {
             <Route element={<ProtectedLayout />}>
               <Route path="/" element={<Navigate to="/procurement" replace />} />
               <Route path="/dashboard" element={<ReviewerOnly><Dashboard /></ReviewerOnly>} />
+              <Route path="/procurement/invoice-review/:id" element={<InvoiceReviewPage />} />
               <Route path="/procurement/*" element={<ProcurementWorkspace/>} />
               <Route path="/upload" element={<Upload />} />
               <Route path="/claims" element={<ClaimsTable />} />

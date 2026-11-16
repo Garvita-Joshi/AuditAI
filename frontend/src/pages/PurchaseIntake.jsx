@@ -2834,7 +2834,14 @@ export default function PurchaseIntake({close,Modal,requestId,initialStep,onLoca
        <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:999,background:'rgba(16,185,129,0.16)',color:'#4ade80',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>
         ✓ Direct Invoice OCR Mapping · AI Vendor Search Bypassed
        </div>
-       <h3>Pre-Listed Company &amp; OCR Invoice Breakdown ({ocrItems.length} Line Item{ocrItems.length !== 1 ? 's' : ''})</h3>
+       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+        <h3>Pre-Listed Company &amp; OCR Invoice Breakdown ({ocrItems.length} Line Item{ocrItems.length !== 1 ? 's' : ''})</h3>
+        {row?.id && (
+          <a href={`/procurement/invoice-review/${row.id}`} className="p-button primary" style={{fontSize:12,fontWeight:700,background:'#ef9976',color:'#14100c',textDecoration:'none',display:'inline-flex',alignItems:'center',gap:5,padding:'6px 14px',borderRadius:8}}>
+            Open Dedicated Item Mind Maps &amp; Review →
+          </a>
+        )}
+       </div>
        <p>Because this request was created or updated from an uploaded invoice, the company and line items are already known from OCR extraction. The AI Sourcing Agent skips external vendor discovery.</p>
       </div>
      </div>
