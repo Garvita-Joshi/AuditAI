@@ -38,15 +38,52 @@ class ChatRequest(BaseModel):
 
 def build_system_context(db: Session, user: AuthUser) -> Dict[str, Any]:
     """Compiles a complete, real-time snapshot of the platform state."""
-    # 1. Procurement & Sourcing Requests
-    sr_query = db.query(SourcingRequest).order_by(SourcingRequest.id.desc())
-    total_sr = sr_query.count()
-    recent_srs = sr_query.limit(10).all()
+    from backend.app.procurement.request_records import RequestArchive, archived_condition
+
+    # 1. Procurement & Sourcing Requests (active, non-deleted only)
+    archived_sr = archived_condition('sourcing', SourcingRequest.id)
+    sr_query = (
+        db.query(SourcingRequest)
+        .filter(~archived_sr)
+        .filter(SourcingRequest.status.notin_(["deleted", "permanently_deleted"]))
+    )
+    if user and user.role not in ("admin", "manager"):
+        sr_query = sr_query.filter(SourcingRequest.owner_id == user.id)
+
+    # Filter out empty initial sessions with no product or budget
+    active_srs = [
+        sr for sr in sr_query.order_by(SourcingRequest.id.desc()).all()
+        if (sr.version and sr.version > 1) or (sr.requirements and (sr.requirements.get("product") or sr.requirements.get("budget")))
+    ]
+
+    # Purchase Requests (PRs from the Procurement page)
+    archived_pr = archived_condition('purchase', PurchaseRequest.id)
+    pr_query = (
+        db.query(PurchaseRequest)
+        .filter(~archived_pr)
+        .filter(PurchaseRequest.status.notin_(["deleted", "permanently_deleted"]))
+    )
+    if user and user.role not in ("admin", "manager", "finance", "security", "procurement"):
+        pr_query = pr_query.filter(PurchaseRequest.requester_id == user.id)
+    active_prs = pr_query.order_by(PurchaseRequest.id.desc()).all()
+
+    # Track permanently deleted requests count so the assistant knows what was deleted
+    deleted_sourcing_count = (
+        db.query(RequestArchive)
+        .filter(RequestArchive.request_kind == 'sourcing', RequestArchive.deleted_at.is_not(None))
+        .count()
+    )
+    deleted_purchase_count = (
+        db.query(RequestArchive)
+        .filter(RequestArchive.request_kind == 'purchase', RequestArchive.deleted_at.is_not(None))
+        .count()
+    )
+    total_deleted = deleted_sourcing_count + deleted_purchase_count
+    total_active = len(active_srs) + len(active_prs)
 
     sourcing_summary = []
-    for sr in recent_srs:
+    for sr in active_srs[:10]:
         reqs = sr.requirements or {}
-        # Check latest search/agent run for this request
         search = (
             db.query(SourcingSearch)
             .filter(SourcingSearch.request_id == sr.id)
@@ -69,10 +106,11 @@ def build_system_context(db: Session, user: AuthUser) -> Dict[str, Any]:
         sourcing_summary.append({
             "id": f"SR-{sr.id:04d}",
             "numeric_id": sr.id,
+            "kind": "sourcing",
             "product": reqs.get("product") or "Procurement Request",
             "quantity": reqs.get("quantity") or 1,
             "budget": reqs.get("budget"),
-            "currency": reqs.get("currency") or "USD",
+            "currency": reqs.get("currency") or "INR",
             "status": sr.status,
             "department": reqs.get("department") or "General",
             "created_at": sr.created_at.isoformat() if sr.created_at else None,
@@ -81,6 +119,25 @@ def build_system_context(db: Session, user: AuthUser) -> Dict[str, Any]:
             "rfqs_sent": rfq_count,
             "quotes_received": quote_count,
             "po_number": po_number,
+        })
+
+    for pr in active_prs[:5]:
+        sourcing_summary.append({
+            "id": f"PR-{pr.id:04d}",
+            "numeric_id": pr.id,
+            "kind": "purchase",
+            "product": pr.title,
+            "quantity": 1,
+            "budget": str(pr.budget_limit) if pr.budget_limit is not None else None,
+            "currency": (pr.terms or {}).get("currency") or "INR",
+            "status": pr.status,
+            "department": ((pr.terms or {}).get("department")) or "Operations",
+            "created_at": pr.created_at.isoformat() if pr.created_at else None,
+            "winner_vendor": (pr.terms or {}).get("supplier_id"),
+            "winner_price": None,
+            "rfqs_sent": 0,
+            "quotes_received": 1,
+            "po_number": f"PO-{pr.id:04d}" if pr.status == "approved" else None,
         })
 
     # Purchase orders
@@ -150,7 +207,10 @@ def build_system_context(db: Session, user: AuthUser) -> Dict[str, Any]:
             "roles": user.roles or [user.role],
         },
         "procurement": {
-            "total_requests": total_sr,
+            "total_requests": total_active,
+            "active_sourcing_count": len(active_srs),
+            "active_purchase_count": len(active_prs),
+            "deleted_requests_count": total_deleted,
             "purchase_orders": po_count,
             "invoices": inv_count,
             "recent_requests": sourcing_summary,
@@ -187,15 +247,41 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
     review = context["review_queue"]
     pay = context["payments"]
     worker = context["background_worker"]
+    deleted_count = proc.get("deleted_requests_count", 0)
 
-    # 1. Background tasks / what is running
+    # 1. Quick Database Snapshot / Overview
+    if any(k in q for k in ["database", "snapshot", "quick", "happening", "summary", "everything", "stats", "overview"]):
+        w_state = "Active (15s polling)" if worker.get("is_running") else "Standby"
+        req_line = (
+            f"`{proc['total_requests']}` active ({deleted_count} deleted/archived)"
+            if deleted_count > 0
+            else f"`{proc['total_requests']}` active"
+        )
+        flagged_line = (
+            f"`{fraud['flagged_claims_count']}` flagged"
+            if fraud["flagged_claims_count"] > 0
+            else "`0` flagged (clean)"
+        )
+        return (
+            f"**AuditAI Live Database & System Snapshot:**\n\n"
+            f"• **Procurement & Sourcing**: {req_line}\n"
+            f"• **Expense Claims**: `{fraud['total_claims']}` total ({flagged_line})\n"
+            f"• **Review Queue**: `{review['open_cases_count']}` open cases awaiting decision\n"
+            f"• **PayPal Sandbox**: `{pay['settled_records']}` settled of `{pay['total_records']}` recorded payments\n"
+            f"• **Master Data**: `{context['master_data']['vendor_master_rows']}` vendors, `{context['master_data']['employee_master_rows']}` employees\n"
+            f"• **Autonomous Worker**: `{w_state}`"
+        )
+
+    # 2. Background tasks / what is running / system status
     if any(k in q for k in ["running", "background", "worker", "status of system", "current status", "activity"]):
         w_state = "Active (Polling every 15s)" if worker.get("is_running") else "Standby"
-        recent_req = proc["recent_requests"][0] if proc["recent_requests"] else None
-        req_info = (
-            f"Latest request is **{recent_req['id']}** ({recent_req['product']}) at status **{recent_req['status']}**."
-            if recent_req else "No procurement requests yet."
-        )
+        if proc["total_requests"] > 0:
+            recent_req = proc["recent_requests"][0]
+            req_info = f"Latest request is **{recent_req['id']}** ({recent_req['product']}) at status **{recent_req['status']}**."
+        else:
+            del_note = f" ({deleted_count} requests permanently deleted/archived)" if deleted_count else ""
+            req_info = f"0 requests currently pending{del_note}."
+
         return (
             f"**AuditAI Platform Live Status:**\n\n"
             f"• **Autonomous Sourcing Worker**: `{w_state}` (Autonomous vendor outreach, quote extraction, and negotiation enabled)\n"
@@ -205,16 +291,16 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
             f"• **Payments Engine**: PayPal Sandbox mode ready."
         )
 
-    # 2. Procurement / Specific PR / Orders
+    # 3. Procurement / Specific PR / Orders / Requests
     pr_match = re.search(r'\b(pr|sr)[-_ ]?0*(\d+)\b', q)
     if pr_match or any(k in q for k in ["procurement", "request", "order", "purchase", "sourcing", "item"]):
         if pr_match:
             req_num = int(pr_match.group(2))
             found = next((r for r in proc["recent_requests"] if r["numeric_id"] == req_num), None)
             if found:
-                currency = found.get("currency") or "USD"
+                currency = found.get("currency") or "INR"
                 budget = found.get("budget")
-                budget_str = f"{currency} {budget:,.2f}" if budget is not None else "Not set"
+                budget_str = f"{currency} {budget:,.2f}" if isinstance(budget, (int, float)) else f"{currency} {budget}" if budget else "Not set"
                 winner = f", Winner: **{found['winner_vendor']}**" if found.get('winner_vendor') else ""
                 po = f", PO: `{found['po_number']}`" if found.get('po_number') else ""
                 return (
@@ -226,20 +312,30 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
                     f"• **Department**: {found['department']}\n"
                     f"• **RFQs Sent**: {found['rfqs_sent']} | **Quotes**: {found['quotes_received']}{winner}{po}"
                 )
+            return f"Request **{pr_match.group(0).upper()}** was not found among active requests (it may have been permanently deleted or archived)."
+
         # General requests list
-        if proc["recent_requests"]:
+        if proc["total_requests"] > 0 and proc["recent_requests"]:
             items = []
-            for r in proc["recent_requests"][:4]:
+            for r in proc["recent_requests"][:5]:
                 b_str = f" ({r['currency']} {r['budget']})" if r.get("budget") else ""
                 items.append(f"• **{r['id']}**: {r['product']} — Status: `{r['status']}`{b_str}")
+            del_str = f"\n\n*(Note: {deleted_count} requests have been permanently deleted and archived)*" if deleted_count > 0 else ""
             return (
-                f"There are currently **{proc['total_requests']} total sourcing requests** on file.\n\n"
+                f"**Active Procurement & Sourcing Requests ({proc['total_requests']}):**\n\n"
                 + "\n".join(items)
+                + del_str
                 + f"\n\nTell me an ID (e.g. `{proc['recent_requests'][0]['id']}`) to inspect full details or quotes!"
             )
-        return "No procurement requests currently exist in the database. You can create one from the Procurement tab!"
 
-    # 3. Vendors / RFQ / Quotes / Negotiation
+        del_note = f" (All {deleted_count} previous requests have been permanently deleted and archived.)" if deleted_count > 0 else ""
+        return (
+            f"**Procurement & Sourcing Status:**\n\n"
+            f"There are currently **0 active requests** in your workspace{del_note}. "
+            f"You can create a new request from the **Procurement** tab with the **+ New request** button."
+        )
+
+    # 4. Vendors / RFQ / Quotes / Negotiation
     if any(k in q for k in ["vendor", "rfq", "quote", "negotiat", "winner", "supplier"]):
         recent_srs = [r for r in proc["recent_requests"] if r.get("rfqs_sent", 0) > 0 or r.get("winner_vendor")]
         if recent_srs:
@@ -252,12 +348,14 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
                 + "\n".join(lines)
                 + "\n\nThe AI sourcing agent automatically handles vendor outreach, RFQ emails, email reply parsing, and counteroffers."
             )
+        if proc["total_requests"] == 0:
+            return f"Currently there are **0 active requests** in your workspace ({deleted_count} deleted/archived). When you create a new request, the AI agent will automatically shortlist and contact vendors."
         return (
             "The AI agent engages vendors automatically via verified email RFQs and Dograh voice calls. "
-            f"Currently {proc['total_requests']} sourcing requests exist. Open any request to dispatch RFQs or review quotes."
+            f"Currently {proc['total_requests']} active requests exist. Open any request to dispatch RFQs or review quotes."
         )
 
-    # 4. Payments / PayPal / Settlement
+    # 5. Payments / PayPal / Settlement
     if any(k in q for k in ["pay", "paypal", "sandbox", "settle", "invoice"]):
         return (
             f"**Payment & Settlement Status:**\n\n"
@@ -267,7 +365,7 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
             f"• When a Purchase Order is approved, the payment milestone is triggered with one-click sandbox authorization. Once executed, the transaction settles immediately."
         )
 
-    # 5. Fraud Detection / Expense Claims / Anomalies
+    # 6. Fraud Detection / Expense Claims / Anomalies
     if any(k in q for k in ["fraud", "claim", "anomal", "policy", "score", "risk"]):
         if fraud["flagged_claims_count"] > 0:
             flagged_list = [
@@ -287,7 +385,7 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
             f"No critical anomalies are currently unresolved."
         )
 
-    # 6. Review Queue / Approvals / Maker-Checker
+    # 7. Review Queue / Approvals / Maker-Checker
     if any(k in q for k in ["review", "queue", "maker", "checker", "case"]):
         if review["open_cases_count"] > 0:
             cases_list = [
@@ -302,15 +400,16 @@ def generate_local_response(query: str, context: Dict[str, Any]) -> str:
             )
         return "The **Shared Review Queue** has 0 pending items. All cases have been resolved!"
 
-    # 7. Default greeting & capabilities
+    # 8. Default greeting & capabilities
     user_name = context["user"]["name"] or "there"
+    del_mention = f" ({deleted_count} deleted/archived)" if deleted_count > 0 else ""
     return (
         f"Hello {user_name}! I am your **AuditAI Global Copilot**.\n\n"
         f"I have direct, real-time memory of all platform operations. Right now:\n"
-        f"• **{proc['total_requests']} Procurement Requests** are tracked in the database\n"
-        f"• **{fraud['flagged_claims_count']} of {fraud['total_claims']} Claims** are flagged for policy/fraud review\n"
-        f"• **{review['open_cases_count']} Review Cases** are awaiting approval in the queue\n"
-        f"• **PayPal Sandbox** payment integration is active\n\n"
+        f"• **{proc['total_requests']} Procurement Requests** active in database{del_mention}\n"
+        f"• **{fraud['flagged_claims_count']} of {fraud['total_claims']} Claims** flagged for policy/fraud review\n"
+        f"• **{review['open_cases_count']} Review Cases** awaiting approval in the queue\n"
+        f"• **PayPal Sandbox** payment integration active\n\n"
         f"You can ask me anything about order statuses, specific PR numbers, vendor quotes, payments, or fraud signals!"
     )
 
@@ -342,10 +441,19 @@ def assistant_chat(
             prompt = (
                 f"You are the AuditAI Global Autonomous Copilot and Mascot. You have direct, live, real-time access "
                 f"to the platform's database and background services.\n\n"
-                f"CURRENT PLATFORM LIVE CONTEXT:\n{context}\n\n"
-                f"USER QUERY: {payload.message}\n\n"
-                f"Answer concisely, accurately, and professionally. Reference actual IDs, amounts, and statuses "
-                f"from the context. If the user asks about taking actions or navigating, guide them clearly."
+                f"CRITICAL PLATFORM LIVE DATABASE CONTEXT:\n"
+                f"• Active Procurement Requests: {context['procurement']['total_requests']} (Active Sourcing: {context['procurement']['active_sourcing_count']}, Active PRs: {context['procurement']['active_purchase_count']})\n"
+                f"• Deleted / Archived Requests: {context['procurement']['deleted_requests_count']}\n"
+                f"• Claims: {context['fraud_detection']['total_claims']} total ({context['fraud_detection']['flagged_claims_count']} flagged anomalies)\n"
+                f"• Review Queue: {context['review_queue']['open_cases_count']} open cases\n"
+                f"• PayPal Sandbox: {context['payments']['settled_records']} settled of {context['payments']['total_records']} payments\n"
+                f"• Master Data: {context['master_data']['vendor_master_rows']} vendors, {context['master_data']['employee_master_rows']} employees\n"
+                f"FULL CONTEXT DATA: {context}\n\n"
+                f"CRITICAL RULES:\n"
+                f"1. If Active Procurement Requests is 0, explicitly tell the user that 0 requests are active and that {context['procurement']['deleted_requests_count']} requests have been permanently deleted and archived. Never state that deleted requests are active or pending!\n"
+                f"2. Keep your answers short, direct, concise, and scannable using bullet points.\n"
+                f"3. Quote exact IDs and live figures from the database.\n\n"
+                f"USER QUERY: {payload.message}"
             )
             response = client.models.generate_content(
                 model=GEMINI_MODEL,

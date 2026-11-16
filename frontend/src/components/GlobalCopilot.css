@@ -349,6 +349,43 @@
   transform: translateY(-1px);
 }
 
+/* Quick Bar above composer for ongoing chat */
+.copilot-quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #15110e;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.copilot-quick-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-pill {
+  background: #231c17;
+  border: 1px solid rgba(239, 153, 118, 0.28);
+  color: #d6d3d1 !important;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.quick-pill:hover {
+  background: #ef9976;
+  color: #17110c !important;
+  border-color: #ef9976;
+}
+
 /* Message Bubbles */
 .chat-message-row {
   display: flex;

@@ -423,6 +423,13 @@ export default function GlobalCopilot() {
                   <button
                     type="button"
                     className="quick-chip"
+                    onClick={() => quickSend('Give me a quick database snapshot')}
+                  >
+                    Quick DB snapshot
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-chip"
                     onClick={() => quickSend('What is the current status of all running requests?')}
                   >
                     Status of requests
@@ -470,6 +477,48 @@ export default function GlobalCopilot() {
               </div>
             )}
           </div>
+
+          {/* Quick Query Bar for continuous one-click live queries */}
+          {messages.length > 0 && (
+            <div className="copilot-quick-bar">
+              <button
+                type="button"
+                className="quick-pill"
+                onClick={() => quickSend('Give me a quick database snapshot')}
+                title="Instant summary of live database state"
+              >
+                DB snapshot
+              </button>
+              <button
+                type="button"
+                className="quick-pill"
+                onClick={() => quickSend('What is the current status of all running requests?')}
+              >
+                Requests
+              </button>
+              <button
+                type="button"
+                className="quick-pill"
+                onClick={() => quickSend('Are there any flagged fraud claims or policy anomalies?')}
+              >
+                Fraud claims
+              </button>
+              <button
+                type="button"
+                className="quick-pill"
+                onClick={() => quickSend('What cases are pending in the review queue?')}
+              >
+                Review cases
+              </button>
+              <button
+                type="button"
+                className="quick-pill"
+                onClick={() => quickSend('What is the PayPal Sandbox payment status?')}
+              >
+                PayPal
+              </button>
+            </div>
+          )}
 
           {/* Input Composer */}
           <form

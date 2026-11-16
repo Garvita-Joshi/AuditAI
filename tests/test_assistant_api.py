@@ -140,3 +140,46 @@ def test_assistant_context_and_chat(client_and_db):
     assert res.status_code == 200
     body = res.json()
     assert "PayPal Sandbox" in body["reply"]
+
+
+def test_assistant_reflects_deleted_requests_and_db_snapshot(client_and_db):
+    client, db = client_and_db
+    from backend.app.procurement.request_records import set_archived
+
+    # Create a sourcing request then permanently delete it
+    sr = SourcingRequest(
+        id=42,
+        owner_id=1,
+        requirements={"product": "Dell Server", "quantity": 2, "budget": 8000, "currency": "INR"},
+        status="draft",
+        version=2,
+    )
+    db.add(sr)
+    db.commit()
+
+    # Verify 1 active
+    res = client.get("/api/v1/assistant/context")
+    assert res.json()["procurement"]["total_requests"] == 1
+
+    # Now archive / delete it
+    set_archived(db, 'sourcing', 42, 1, deleted=True)
+
+    # Context should now immediately show 0 active requests and 1 deleted
+    res = client.get("/api/v1/assistant/context")
+    assert res.status_code == 200
+    ctx = res.json()
+    assert ctx["procurement"]["total_requests"] == 0
+    assert ctx["procurement"]["deleted_requests_count"] >= 1
+
+    # Asking for status of requests must report 0 active and mention deleted/archived
+    res = client.post("/api/v1/assistant/chat", json={"message": "What is the status of requests?"})
+    assert res.status_code == 200
+    reply = res.json()["reply"]
+    assert "0 active requests" in reply
+
+    # Quick database snapshot query
+    res = client.post("/api/v1/assistant/chat", json={"message": "Give me a quick database snapshot"})
+    assert res.status_code == 200
+    reply = res.json()["reply"]
+    assert "AuditAI Live Database & System Snapshot" in reply
+    assert "0` active" in reply or "0 active" in reply
