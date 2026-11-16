@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimsApi, fraudApi, receiptsApi, procurementApi } from '../api/client';
 import FileUpload from '../components/FileUpload';
+import MasterDataImport from '../components/MasterDataImport';
 import AutomaticCheckResult from '../components/AutomaticCheckResult';
 import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database } from 'lucide-react';
 import { isReviewer, useAuth } from '../auth/AuthContext';
@@ -294,6 +295,7 @@ export default function Upload() {
   const [message, setMessage] = useState(null);
   const [scoring, setScoring] = useState(false);
   const [automaticChecks, setAutomaticChecks] = useState(null);
+  const [showMaster, setShowMaster] = useState(false);
 
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -413,6 +415,34 @@ export default function Upload() {
       <InvoiceUploadSection onUploaded={() => setInvoiceUploaded(true)} />
 
       <AutomaticCheckResult checks={automaticChecks}/>
+
+      {/* ── OPTIONAL: Master Reference Data & Ledger Ingestion Toggle ── */}
+      {isReviewer(user) && (
+        <>
+          <div className="glass-card mb-6 flex items-center justify-between p-4 flex-wrap gap-3">
+            <div className="flex items-center gap-2.5">
+              <Database size={18} className="text-accent-primary" />
+              <div>
+                <strong className="text-xs text-primary block">Master Reference Data & Ledger Ingestion</strong>
+                <span className="text-[11px] text-muted">Upload company ground truth: Vendor Master, Employee Roster, and Payroll Payments.</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary text-xs flex items-center gap-1.5"
+              onClick={() => setShowMaster(prev => !prev)}
+            >
+              <span>{showMaster ? 'Hide Master Data Ingestion' : 'Show Master Data Ingestion'}</span>
+            </button>
+          </div>
+
+          {showMaster && (
+            <div className="mb-6">
+              <MasterDataImport />
+            </div>
+          )}
+        </>
+      )}
 
       {isReviewer(user) && (csvUploadState === 'complete' || invoiceUploaded) && (
         <div className="glass-card mb-6 flex items-center justify-between gap-5" style={{ padding: '18px 24px' }}>

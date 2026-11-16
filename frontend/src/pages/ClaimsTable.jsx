@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Filter, Search } from 'lucide-react';
+import { Filter, Search, Database } from 'lucide-react';
 import { claimsApi } from '../api/client';
 import DataTable from '../components/DataTable';
 import ScoreBadge from '../components/ScoreBadge';
+import MasterDataImport from '../components/MasterDataImport';
 
 const ALLOWED_STATUSES = new Set(['pending', 'processing', 'scored', 'flagged', 'approved', 'rejected']);
 const ALLOWED_SORTS = new Set(['claim_id', 'employee_name', 'vendor_name', 'claimed_amount', 'claimed_date', 'submitted_at', 'status', 'fraud_score']);
@@ -25,6 +26,7 @@ export default function ClaimsTable() {
   const sortParam = searchParams.get('sort_by');
   const sortBy = ALLOWED_SORTS.has(sortParam) ? sortParam : 'submitted_at';
   const sortOrder = searchParams.get('sort_order') === 'asc' ? 'asc' : 'desc';
+  const activeTab = searchParams.get('tab') || 'ledger';
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -157,107 +159,147 @@ export default function ClaimsTable() {
 
   return (
     <div className="main-content">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl">Expense Claims</h1>
-      </div>
-
-      <div className="glass-card mb-6">
-        <div className="claims-toolbar flex justify-between items-center mb-4">
-          <div className="claims-filter-controls flex gap-4 items-center">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted" size={16} />
-              <input
-                type="text"
-                className="input pl-10"
-                placeholder="Search claims..."
-                style={{ width: 250 }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-
-            <div className="claims-status-filter flex items-center gap-2">
-              <Filter className="text-muted" size={16} />
-              <select
-                className="input py-2"
-                value={statusFilter}
-                onChange={(e) => handleStatusChange(e.target.value)}
-                style={{ width: 160 }}
-              >
-                <option value="">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="processing">Processing</option>
-                <option value="scored">Scored</option>
-                <option value="flagged">Flagged</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
-            <select
-              className="input py-2"
-              aria-label="Filter by anomaly score"
-              value={scoreBand}
-              onChange={(e) => handleScoreBandChange(e.target.value)}
-              style={{ width: 165 }}
-            >
-              <option value="">All Scores</option>
-              <option value="low">0–49 / 100</option>
-              <option value="review">50–64 / 100</option>
-              <option value="high">65–100 / 100</option>
-            </select>
-            <select
-              className="input py-2"
-              aria-label="Sort claims by score"
-              value={sortBy === 'fraud_score' ? sortOrder : ''}
-              onChange={(e) => updateSort(e.target.value ? 'fraud_score' : 'submitted_at', e.target.value || 'desc')}
-              style={{ width: 190 }}
-            >
-              <option value="">Sort by score</option>
-              <option value="desc">Highest anomaly first</option>
-              <option value="asc">Lowest anomaly first</option>
-            </select>
-          </div>
-
-          <div className="text-sm text-secondary">
-            Showing {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} of {total} claims
-          </div>
+      <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Expense Claims</h1>
+          <p className="text-xs text-secondary mt-0.5">
+            Audit expense records, review ML risk scores, and manage company ground-truth master registries.
+          </p>
         </div>
 
-        <DataTable
-          columns={columns}
-          data={data}
-          onRowClick={(row) => navigate(`/claims/${row.claim_id}`, {
-            state: { claimsReturnTo: `${location.pathname}${location.search}` },
-          })}
-          sortBy={sortBy}
-          sortOrder={sortOrder}
-          onSort={handleSort}
-          loading={loading}
-        />
-
-        {/* Pagination */}
-        {!loading && totalPages > 1 && (
-          <div className="flex justify-center gap-2 mt-6">
-            <button
-              className="btn btn-secondary"
-              disabled={page === 1}
-              onClick={() => setPage(p => p - 1)}
-            >
-              Previous
-            </button>
-            <span className="flex items-center px-4 text-sm text-secondary">
-              Page {page} of {totalPages}
-            </span>
-            <button
-              className="btn btn-secondary"
-              disabled={page === totalPages}
-              onClick={() => setPage(p => p + 1)}
-            >
-              Next
-            </button>
-          </div>
-        )}
+        {/* Option Toggle: Claims Ledger vs Master Reference Data */}
+        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-bg-surface border border-border-light">
+          <button
+            type="button"
+            className={`btn text-xs ${activeTab === 'ledger' ? 'btn-primary font-bold' : 'btn-secondary'}`}
+            style={{ borderRadius: '6px', padding: '6px 14px' }}
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('tab');
+              setSearchParams(next);
+            }}
+          >
+            <span>Claims Ledger ({total})</span>
+          </button>
+          <button
+            type="button"
+            className={`btn text-xs flex items-center gap-1.5 ${activeTab === 'master' ? 'btn-primary font-bold' : 'btn-secondary'}`}
+            style={{ borderRadius: '6px', padding: '6px 14px' }}
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.set('tab', 'master');
+              setSearchParams(next);
+            }}
+          >
+            <Database size={14} />
+            <span>Master Reference Data & Ingestion</span>
+          </button>
+        </div>
       </div>
+
+      {activeTab === 'master' ? (
+        <div className="mb-6">
+          <MasterDataImport />
+        </div>
+      ) : (
+        <div className="glass-card mb-6">
+          <div className="claims-toolbar flex justify-between items-center mb-4">
+            <div className="claims-filter-controls flex gap-4 items-center">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted" size={16} />
+                <input
+                  type="text"
+                  className="input pl-10"
+                  placeholder="Search claims..."
+                  style={{ width: 250 }}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="claims-status-filter flex items-center gap-2">
+                <Filter className="text-muted" size={16} />
+                <select
+                  className="input py-2"
+                  value={statusFilter}
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  style={{ width: 160 }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="processing">Processing</option>
+                  <option value="scored">Scored</option>
+                  <option value="flagged">Flagged</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <select
+                className="input py-2"
+                aria-label="Filter by anomaly score"
+                value={scoreBand}
+                onChange={(e) => handleScoreBandChange(e.target.value)}
+                style={{ width: 165 }}
+              >
+                <option value="">All Scores</option>
+                <option value="low">0–49 / 100</option>
+                <option value="review">50–64 / 100</option>
+                <option value="high">65–100 / 100</option>
+              </select>
+              <select
+                className="input py-2"
+                aria-label="Sort claims by score"
+                value={sortBy === 'fraud_score' ? sortOrder : ''}
+                onChange={(e) => updateSort(e.target.value ? 'fraud_score' : 'submitted_at', e.target.value || 'desc')}
+                style={{ width: 190 }}
+              >
+                <option value="">Sort by score</option>
+                <option value="desc">Highest anomaly first</option>
+                <option value="asc">Lowest anomaly first</option>
+              </select>
+            </div>
+
+            <div className="text-sm text-secondary">
+              Showing {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} of {total} claims
+            </div>
+          </div>
+
+          <DataTable
+            columns={columns}
+            data={data}
+            onRowClick={(row) => navigate(`/claims/${row.claim_id}`, {
+              state: { claimsReturnTo: `${location.pathname}${location.search}` },
+            })}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSort={handleSort}
+            loading={loading}
+          />
+
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="flex justify-center gap-2 mt-6">
+              <button
+                className="btn btn-secondary"
+                disabled={page === 1}
+                onClick={() => setPage(p => p - 1)}
+              >
+                Previous
+              </button>
+              <span className="flex items-center px-4 text-sm text-secondary">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                className="btn btn-secondary"
+                disabled={page === totalPages}
+                onClick={() => setPage(p => p + 1)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
