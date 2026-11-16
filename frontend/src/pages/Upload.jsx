@@ -4,7 +4,7 @@ import { claimsApi, fraudApi, receiptsApi, procurementApi, sourcingApi } from '.
 import FileUpload from '../components/FileUpload';
 import MasterDataImport from '../components/MasterDataImport';
 import AutomaticCheckResult from '../components/AutomaticCheckResult';
-import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database, Bell, CreditCard, ShieldCheck } from 'lucide-react';
+import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database, Bell, CreditCard, ShieldCheck, ArrowRight } from 'lucide-react';
 import { isReviewer, useAuth } from '../auth/AuthContext';
 import { useAuditProfile } from '../context/AuditProfileContext';
 import './Upload.css';

@@ -106,7 +106,7 @@
 }
 
 .ir-status-badge.status-approved,
-.ir-status-badge:contains("PAID") {
+.ir-status-badge.status-completed {
   background: rgba(16, 185, 129, 0.2);
   color: #4ade80;
   border: 1px solid rgba(16, 185, 129, 0.45);
