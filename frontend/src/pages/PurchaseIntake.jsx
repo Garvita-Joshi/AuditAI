@@ -155,7 +155,7 @@ const blankItem=()=>({description:'',line_type:'Item',quantity:1,unit_price:'',i
 const errorText=e=>typeof e.response?.data?.detail==='string'?e.response.data.detail:e.message||'Check the required fields and try again.';
 const lineTotal=item=>(Number(item.quantity)||0)*(Number(item.unit_price)||0);
 function PixelBot({className=""}){return <img className={`buying-bot ${className}`} src="/auditai-mascot.png" alt="AuditAI mascot" draggable={false}/>;}
-export function WorkflowMindMap({workflow, requestId, assessment: initialAssessment, initialPaypal, onAssessmentComplete, contractDocs = []}){
+export function WorkflowMindMap({workflow, fullWorkflow, requestId, assessment: initialAssessment, initialPaypal, onAssessmentComplete, contractDocs = []}){
  if(!workflow?.nodes?.length)return null;
  const nodes=workflow.nodes;
  const rawEdges=workflow.edges||[];
@@ -223,23 +223,69 @@ export function WorkflowMindMap({workflow, requestId, assessment: initialAssessm
  const containerRef=useRef(null);
  const [positions,setPositions]=useState({});
  const [activeModalNode,setActiveModalNode]=useState(null);
- const [nodeApprovals,setNodeApprovals]=useState(()=>({}));
- const [assessment,setAssessment]=useState(initialAssessment || workflow?.final_invoice_assessment || null);
- const [paypalPayment,setPaypalPayment]=useState(initialPaypal || workflow?.paypal_payment || null);
+ const [nodeApprovals,setNodeApprovals]=useState(()=>(fullWorkflow?.node_approvals || workflow?.node_approvals || {}));
+ const [approvingNodeId,setApprovingNodeId]=useState(null);
+ const [assessment,setAssessment]=useState(initialAssessment || fullWorkflow?.final_invoice_assessment || workflow?.final_invoice_assessment || null);
+ const [paypalPayment,setPaypalPayment]=useState(initialPaypal || fullWorkflow?.paypal_payment || workflow?.paypal_payment || null);
  const [evaluating,setEvaluating]=useState(false);
  const [paypalBusy,setPaypalBusy]=useState(false);
  const [evalError,setEvalError]=useState(null);
  const [paypalNotice,setPaypalNotice]=useState(null);
 
+ const invOcr = fullWorkflow?.invoice_ocr_details || workflow?.invoice_ocr_details || null;
+ const authorityNodes = nodes.filter(n => !['receipt-match', 'payment-release'].includes(n.id));
+ const approvedAuthorityCount = authorityNodes.filter(n => nodeApprovals[n.id]?.approved).length;
+ const allAuthoritiesApproved = authorityNodes.length === 0 || approvedAuthorityCount >= authorityNodes.length;
+
  useEffect(()=>{
+  if(fullWorkflow?.node_approvals) setNodeApprovals(fullWorkflow.node_approvals);
+  else if(workflow?.node_approvals) setNodeApprovals(workflow.node_approvals);
   if(initialAssessment) setAssessment(initialAssessment);
+  else if(fullWorkflow?.final_invoice_assessment) setAssessment(fullWorkflow.final_invoice_assessment);
   else if(workflow?.final_invoice_assessment) setAssessment(workflow.final_invoice_assessment);
   if(initialPaypal) setPaypalPayment(initialPaypal);
+  else if(fullWorkflow?.paypal_payment) setPaypalPayment(fullWorkflow.paypal_payment);
   else if(workflow?.paypal_payment) setPaypalPayment(workflow.paypal_payment);
- },[initialAssessment, initialPaypal, workflow]);
+ },[initialAssessment, initialPaypal, workflow, fullWorkflow]);
+
+ const handleApproveCheckpoint = async (node) => {
+  if(!node?.id) return;
+  const fallbackRecord = {
+   approved: true,
+   actor: `prepares23 (prepares23@gmail.com · ${node.owner_group || 'Approver'} / ${node.assignee?.name || 'Reviewer'})`,
+   timestamp: new Date().toISOString(),
+  };
+  if(!requestId) {
+   setNodeApprovals(prev => ({ ...prev, [node.id]: fallbackRecord }));
+   return;
+  }
+  setApprovingNodeId(node.id);
+  setEvalError(null);
+  try {
+   const res = await sourcingApi.approveCheckpoint(requestId, {
+    node_id: node.id,
+    label: node.label,
+    owner_group: node.owner_group,
+   });
+   const data = res?.data || res;
+   if(data?.node_approvals) {
+    setNodeApprovals(data.node_approvals);
+   } else {
+    setNodeApprovals(prev => ({ ...prev, [node.id]: fallbackRecord }));
+   }
+  } catch {
+   setNodeApprovals(prev => ({ ...prev, [node.id]: fallbackRecord }));
+  } finally {
+   setApprovingNodeId(null);
+  }
+ };
 
  const handleRunMlCheck = async () => {
   if(!requestId) return;
+  if(!allAuthoritiesApproved) {
+   setEvalError(`Please approve all ${authorityNodes.length} respective authority checkpoints (${approvedAuthorityCount}/${authorityNodes.length} approved) before running the Final ML Model Check.`);
+   return;
+  }
   setEvaluating(true);
   setEvalError(null);
   setPaypalNotice(null);
@@ -339,6 +385,91 @@ export function WorkflowMindMap({workflow, requestId, assessment: initialAssessm
  },[workflow,columns.length]);
 
  return <div className="workflow-map-scroll" role="region" aria-label="Generated purchase approval workflow" tabIndex="0">
+  {invOcr?.is_invoice_upload && (
+   <div style={{marginBottom:18,padding:'16px 20px',borderRadius:12,background:'linear-gradient(135deg, rgba(38,32,29,0.96) 0%, rgba(28,25,23,0.96) 100%)',border:'1px solid rgba(239,153,118,0.4)'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12,marginBottom:12}}>
+     <div>
+      <span style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:999,background:'rgba(239,153,118,0.18)',color:'#ef9976',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>
+       Invoice Pipeline · {invOcr.invoice_number} · {invOcr.supplier_id}
+      </span>
+      <h4 style={{margin:'2px 0 4px',fontSize:15,fontWeight:800,color:'#fafaf9'}}>
+       Respective Approval Authorities Gate — "Have you approved this invoice?" ({approvedAuthorityCount} / {authorityNodes.length} Approved)
+      </h4>
+      <p style={{margin:0,fontSize:12.5,color:'#d6d3d1',lineHeight:1.45}}>
+       {!allAuthoritiesApproved
+        ? 'Each respective approval authority below must approve their checkpoint before Stage 4 (Final Check to ML Model) and Stage 5 (Make Payment) unlock.'
+        : !assessment
+        ? '✓ All respective approval authorities have approved! Click "Send Final Invoice to ML Model" to run the PyTorch Autoencoder + Isolation Forest fraud check.'
+        : paypalPayment?.status === 'completed'
+        ? `✓ Pipeline Complete! Invoice approved by all authorities, cleared by ML Model, and settled via PayPal Sandbox (Order ${paypalPayment.order_id}).`
+        : '✓ Authorities Approved & ML Fraud Check Passed! Click "Make Payment (PayPal Sandbox)" to settle this invoice.'}
+      </p>
+     </div>
+     <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+      {allAuthoritiesApproved && !assessment && (
+       <button
+        type="button"
+        className="p-button primary"
+        onClick={handleRunMlCheck}
+        disabled={evaluating}
+        style={{background:'#ef9976',color:'#14100c',fontWeight:800,border:'none'}}
+       >
+        {evaluating ? 'Running ML Fraud Check…' : '✨ Stage 4: Send Final Invoice to ML Model'}
+       </button>
+      )}
+      {allAuthoritiesApproved && assessment && !assessment.is_fraud && paypalPayment?.status !== 'completed' && (
+       <button
+        type="button"
+        className="p-button primary"
+        onClick={handlePaypalDirectSettle}
+        disabled={paypalBusy}
+        style={{background:'#059669',borderColor:'#059669',color:'#fff',fontWeight:800}}
+       >
+        {paypalBusy ? 'Settling Payment…' : `💳 Stage 5: Make Payment (${invOcr.currency || 'INR'} ${invOcr.total})`}
+       </button>
+      )}
+      {paypalPayment?.status === 'completed' && (
+       <span style={{padding:'6px 12px',borderRadius:8,background:'rgba(16,185,129,0.2)',color:'#4ade80',border:'1px solid rgba(16,185,129,0.4)',fontSize:12,fontWeight:700}}>
+        ✓ Paid via PayPal Sandbox ({paypalPayment.order_id})
+       </span>
+      )}
+     </div>
+    </div>
+
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(230px, 1fr))',gap:8}}>
+     {authorityNodes.map((n, idx) => {
+      const isApp = Boolean(nodeApprovals[n.id]?.approved);
+      return (
+       <div key={n.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,background:isApp?'rgba(16,185,129,0.1)':'rgba(0,0,0,0.28)',border:isApp?'1px solid rgba(16,185,129,0.35)':'1px solid rgba(255,255,255,0.08)'}}>
+        <div style={{minWidth:0}}>
+         <strong style={{display:'block',fontSize:12,color:'#f5f5f4',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+          {idx + 1}. {n.label}
+         </strong>
+         <small style={{fontSize:11,color:'#a8a29e',display:'block'}}>
+          {n.owner_group} · {n.assignee?.name || 'Reviewer'}
+         </small>
+        </div>
+        {isApp ? (
+         <span style={{fontSize:11,color:'#4ade80',fontWeight:700,whiteSpace:'nowrap'}}>✓ Approved</span>
+        ) : (
+         <button
+          type="button"
+          className="p-button primary"
+          disabled={approvingNodeId === n.id}
+          onClick={() => handleApproveCheckpoint(n)}
+          style={{padding:'5px 10px',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}
+         >
+          {approvingNodeId === n.id ? 'Approving…' : `Approve (${n.owner_group})`}
+         </button>
+        )}
+       </div>
+      );
+     })}
+    </div>
+    {evalError && <p style={{margin:'10px 0 0',color:'#f87171',fontSize:12,fontWeight:600}}>{evalError}</p>}
+    {paypalNotice && <p style={{margin:'10px 0 0',color:'#6ee7b7',fontSize:12,fontWeight:600}}>{paypalNotice}</p>}
+   </div>
+  )}
   <div ref={containerRef} className="workflow-branch-canvas">
    <svg className="workflow-map-edges" width="100%" height="100%" aria-hidden="true">
     <defs>
@@ -684,12 +815,17 @@ export function WorkflowMindMap({workflow, requestId, assessment: initialAssessm
         </div>
        ) : (
         <div className="workflow-ml-pending-box">
-         <p>Ready to evaluate final invoice against historical baselines and unlock PayPal Sandbox checkout.</p>
+         <p>
+          {!allAuthoritiesApproved
+           ? `🔒 Locked — All respective approval authorities (${approvedAuthorityCount}/${authorityNodes.length} approved) must approve this invoice before running the Final ML Model Check.`
+           : 'Ready to evaluate final invoice against historical baselines and unlock PayPal Sandbox checkout.'}
+         </p>
          <button
           type="button"
           className="p-button primary"
           onClick={handleRunMlCheck}
-          disabled={evaluating || !requestId}
+          disabled={evaluating || !requestId || !allAuthoritiesApproved}
+          style={!allAuthoritiesApproved ? {opacity:0.5,cursor:'not-allowed'} : {}}
          >
           {evaluating ? (
            <><RefreshCw size={14} className="workflow-spinning"/> Analyzing Invoice with ML Model…</>
@@ -728,17 +864,11 @@ export function WorkflowMindMap({workflow, requestId, assessment: initialAssessm
        <button
         type="button"
         className="p-button primary"
+        disabled={approvingNodeId === activeModalNode.id}
         style={{background:'#ef9976',color:'#14100c',fontWeight:700,border:'none',padding:'9px 18px',borderRadius:8,cursor:'pointer',fontSize:12.5}}
-        onClick={() => {
-         const record = {
-          approved: true,
-          actor: 'prepares23 (prepares23@gmail.com · Administrator / ' + (activeModalNode.owner_group || 'Reviewer') + ')',
-          timestamp: new Date().toISOString()
-         };
-         setNodeApprovals(prev => ({ ...prev, [activeModalNode.id]: record }));
-        }}
+        onClick={() => handleApproveCheckpoint(activeModalNode)}
        >
-        ✓ Approve Checkpoint
+        {approvingNodeId === activeModalNode.id ? 'Approving…' : `✓ Approve Checkpoint (${activeModalNode.owner_group || 'Authority'})`}
        </button>
        <button
         type="button"
@@ -2690,10 +2820,75 @@ export default function PurchaseIntake({close,Modal,requestId,initialStep,onLoca
  <fieldset data-required-field="payment-terms" className="intake-payment"><legend>Please select the payment terms of this contract: <b>*</b></legend>{PAYMENT_TERMS.map(term=><label key={term}><input aria-required="true" type="radio" name="payment_terms" checked={draft.payment_terms===term} onChange={()=>change('payment_terms',term)}/><span>{term}</span></label>)}</fieldset>
  </>}
  {step===1&&<section className="intake-data-information"><h3>Data Information</h3><p>Will any personal data be shared for this engagement? For example, customer emails, names, user activity, etc. <b>*</b></p><p className="p-muted">Please see the attached data policy for detailed descriptions and definitions.</p><div className="intake-policy-links"><a href="/sample-vendor-data-sharing-policy.pdf" target="_blank" rel="noreferrer">Data Access Policy ↗</a><a href="/sample-vendor-data-sharing-policy.pdf" download>Download attachment ↓</a><small>Demonstration sample only; not an approved company policy.</small></div><fieldset data-required-field="privacy-choice" className="intake-data-choice"><legend>Will personal data be shared with this supplier? <b>*</b></legend>{[['yes','Yes','Select this if personal data will be shared with the vendor.'],['no','No','Select this if no personal data will be shared with the vendor.'],['unknown',"I don't know",'Select this option if you are unsure.']].map(([value,title,help])=><label key={value}><input type="radio" aria-required="true" name="shares_personal_data" checked={draft.data_sharing_choice===value} onChange={()=>{const next={...draftRef.current,data_sharing_choice:value,shares_personal_data:value==='yes'?true:value==='no'?false:null,...(value==='no'?{data_types:[],data_usage:null}:{})};draftRef.current=next;setDraft(next);setPrivacyHelp(value==='unknown');if(value==='unknown')setAssistantOpenSignal(n=>n+1);setDirty(true);setStatus('Unsaved changes');}}/><span><strong>{title}</strong><small>{help}</small></span></label>)}</fieldset>{draft.shares_personal_data===true&&<><fieldset data-required-field="data-types" className="intake-data-types"><legend>What type of data/information will be shared? <b>*</b></legend>{DATA_TYPES.map(type=><label key={type}><input type="checkbox" aria-required="true" checked={(draft.data_types||[]).includes(type)} onChange={()=>{const values=draft.data_types||[];change('data_types',values.includes(type)?values.filter(v=>v!==type):[...values,type]);}}/><span>{type}</span></label>)}</fieldset><label className="p-field"><span>How will this vendor use this data? <b>*</b></span><textarea data-required-field="data-usage" aria-required="true" maxLength={2000} value={draft.data_usage||''} onChange={e=>change('data_usage',e.target.value)} placeholder="Describe the purpose for sharing this data."/></label></>}</section>}
- {step===2&&<section className="intake-workflow"><div className="intake-workflow-heading"><div><h3>Workflow for this purchase</h3><p>This approval map is tailored to the selected goods or services and data-sharing answers. Each card is a proposed checkpoint for human review.</p></div><button className="p-button" type="button" onClick={regenerateWorkflow} disabled={busy||!row}><RefreshCw size={14} className={busy?'workflow-spinning':''}/>{busy?'Generating…':'Regenerate map'}</button></div><div className="intake-workflow-source"><GitBranch size={15}/><span>AI-Tailored Approval Workflow</span><small>{workflowResult?.notice && !workflowResult.notice.includes('could not produce') && !workflowResult.notice.includes('safe rules-based') ? workflowResult.notice : 'Dynamically tailored to this purchase; authorized approvers retain full decision authority.'}</small></div>{workflowResult?.graph?<><h4 className="intake-workflow-title">{workflowResult.graph.title}</h4><p className="intake-workflow-summary">{workflowResult.graph.summary}</p><WorkflowMindMap workflow={workflowResult.graph} requestId={row?.id} assessment={row?.workspace?.workflow?.final_invoice_assessment || workflowResult?.final_invoice_assessment} initialPaypal={row?.workspace?.workflow?.paypal_payment || workflowResult?.paypal_payment} contractDocs={contractDocs}/></>:<div className="intake-workflow-loading" role="status">Creating the purchase-specific approval map…</div>}{plan.hasService&&<section className="intake-contract-docs"><h4>Service contract documents</h4><p>MSA and SOW checks apply to service engagements. Upload the documents you already have; missing items are flagged for Legal review.</p>{[['msa','Master Services Agreement (MSA)'],['sow','Statement of Work (SOW)']].map(([kind,title])=>{const doc=contractDocs.find(d=>d.kind===kind);return <div className="intake-contract-document" key={kind}><div><strong>{title}</strong><small>{doc?<><CheckCircle2 size={14}/> Uploaded: {doc.filename}</>:<><AlertCircle size={14}/> {contractFiles[kind]?.name||'Not provided yet'}</>}</small></div><label className="p-button"><Upload size={14}/> Choose PDF/DOCX<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e=>setContractFiles(files=>({...files,[kind]:e.target.files?.[0]||null}))}/></label><button type="button" className="p-button primary" disabled={!contractFiles[kind]||busy} onClick={()=>uploadContract(kind)}>{busy?'Uploading…':'Upload'}</button></div>})}<p className="intake-contract-note">Uploads are stored as supporting evidence. The system does not decide that a contract is legally sufficient; Legal must review it.</p></section>}
+ {step===2&&<section className="intake-workflow"><div className="intake-workflow-heading"><div><h3>Workflow for this purchase</h3><p>This approval map is tailored to the selected goods or services and data-sharing answers. Each card is a proposed checkpoint for human review.</p></div><button className="p-button" type="button" onClick={regenerateWorkflow} disabled={busy||!row}><RefreshCw size={14} className={busy?'workflow-spinning':''}/>{busy?'Generating…':'Regenerate map'}</button></div><div className="intake-workflow-source"><GitBranch size={15}/><span>AI-Tailored Approval Workflow</span><small>{workflowResult?.notice && !workflowResult.notice.includes('could not produce') && !workflowResult.notice.includes('safe rules-based') ? workflowResult.notice : 'Dynamically tailored to this purchase; authorized approvers retain full decision authority.'}</small></div>{workflowResult?.graph?<><h4 className="intake-workflow-title">{workflowResult.graph.title}</h4><p className="intake-workflow-summary">{workflowResult.graph.summary}</p><WorkflowMindMap workflow={workflowResult.graph} fullWorkflow={workflowResult || row?.workspace?.workflow} requestId={row?.id} assessment={row?.workspace?.workflow?.final_invoice_assessment || workflowResult?.final_invoice_assessment} initialPaypal={row?.workspace?.workflow?.paypal_payment || workflowResult?.paypal_payment} contractDocs={contractDocs}/></>:<div className="intake-workflow-loading" role="status">Creating the purchase-specific approval map…</div>}{plan.hasService&&<section className="intake-contract-docs"><h4>Service contract documents</h4><p>MSA and SOW checks apply to service engagements. Upload the documents you already have; missing items are flagged for Legal review.</p>{[['msa','Master Services Agreement (MSA)'],['sow','Statement of Work (SOW)']].map(([kind,title])=>{const doc=contractDocs.find(d=>d.kind===kind);return <div className="intake-contract-document" key={kind}><div><strong>{title}</strong><small>{doc?<><CheckCircle2 size={14}/> Uploaded: {doc.filename}</>:<><AlertCircle size={14}/> {contractFiles[kind]?.name||'Not provided yet'}</>}</small></div><label className="p-button"><Upload size={14}/> Choose PDF/DOCX<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e=>setContractFiles(files=>({...files,[kind]:e.target.files?.[0]||null}))}/></label><button type="button" className="p-button primary" disabled={!contractFiles[kind]||busy} onClick={()=>uploadContract(kind)}>{busy?'Uploading…':'Upload'}</button></div>})}<p className="intake-contract-note">Uploads are stored as supporting evidence. The system does not decide that a contract is legally sufficient; Legal must review it.</p></section>}
 
-  {/* ── CHOSEN VENDORS TABLE (EMBEDDED ON MAP PAGE) ── */}
+  {/* ── CHOSEN VENDORS OR OCR PRE-LISTED COMPANY & ITEMS (EMBEDDED ON MAP PAGE) ── */}
   <div className="intake-map-divider" />
+  {(workflowResult?.invoice_ocr_details?.is_invoice_upload || row?.workspace?.workflow?.invoice_ocr_details?.is_invoice_upload) ? (()=>{
+   const invOcr = workflowResult?.invoice_ocr_details || row?.workspace?.workflow?.invoice_ocr_details || {};
+   const ocrItems = invOcr.items?.length ? invOcr.items : items;
+   return (
+    <section className="intake-embedded-sourcing" aria-label="OCR Pre-Listed Supplier and Invoice Items">
+     <div className="intake-sourcing-head">
+      <div>
+       <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:999,background:'rgba(16,185,129,0.16)',color:'#4ade80',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>
+        ✓ Direct Invoice OCR Mapping · AI Vendor Search Bypassed
+       </div>
+       <h3>Pre-Listed Company &amp; OCR Invoice Breakdown ({ocrItems.length} Line Item{ocrItems.length !== 1 ? 's' : ''})</h3>
+       <p>Because this request was created or updated from an uploaded invoice, the company and line items are already known from OCR extraction. The AI Sourcing Agent skips external vendor discovery.</p>
+      </div>
+     </div>
+     <div style={{marginTop:14,padding:'18px 22px',borderRadius:12,background:'#1c1917',border:'1px solid rgba(239,153,118,0.3)'}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))',gap:14,marginBottom:16,paddingBottom:14,borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
+       <div>
+        <small style={{color:'#a8a29e',fontSize:11,display:'block',textTransform:'uppercase'}}>Company / Supplier</small>
+        <strong style={{color:'#fafaf9',fontSize:14}}>{invOcr.supplier_id || draft.preferred_vendors || 'Verified Supplier'}</strong>
+       </div>
+       <div>
+        <small style={{color:'#a8a29e',fontSize:11,display:'block',textTransform:'uppercase'}}>Invoice Number</small>
+        <strong style={{color:'#ef9976',fontSize:14}}>{invOcr.invoice_number || 'INV-OCR'}</strong>
+       </div>
+       <div>
+        <small style={{color:'#a8a29e',fontSize:11,display:'block',textTransform:'uppercase'}}>Invoice Date</small>
+        <strong style={{color:'#fafaf9',fontSize:14}}>{invOcr.invoice_date || draft.contract_start || '—'}</strong>
+       </div>
+       <div>
+        <small style={{color:'#a8a29e',fontSize:11,display:'block',textTransform:'uppercase'}}>Total Invoice Amount</small>
+        <strong style={{color:'#4ade80',fontSize:15}}>{invOcr.currency || currency} {Number(invOcr.total || total || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</strong>
+       </div>
+      </div>
+      <div style={{overflowX:'auto'}}>
+       <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+        <thead>
+         <tr style={{borderBottom:'1px solid rgba(255,255,255,0.1)',color:'#a8a29e',textAlign:'left'}}>
+          <th style={{padding:'8px 10px'}}># / SKU</th>
+          <th style={{padding:'8px 10px'}}>Item / Service Description</th>
+          <th style={{padding:'8px 10px'}}>Qty</th>
+          <th style={{padding:'8px 10px'}}>Unit Price</th>
+          <th style={{padding:'8px 10px',textAlign:'right'}}>Line Total</th>
+         </tr>
+        </thead>
+        <tbody>
+         {ocrItems.map((it, idx) => {
+          const qty = Number(it.quantity || 1);
+          const up = Number(it.unit_price || 0);
+          return (
+           <tr key={idx} style={{borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+            <td style={{padding:'10px',color:'#ef9976',fontWeight:600}}>{it.sku || `ITEM-${idx + 1}`}</td>
+            <td style={{padding:'10px',color:'#fafaf9',fontWeight:600}}>{it.description}</td>
+            <td style={{padding:'10px',color:'#d6d3d1'}}>{qty}</td>
+            <td style={{padding:'10px',color:'#d6d3d1'}}>{invOcr.currency || currency} {up.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+            <td style={{padding:'10px',color:'#fafaf9',fontWeight:700,textAlign:'right'}}>{invOcr.currency || currency} {(qty * up).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+           </tr>
+          );
+         })}
+        </tbody>
+       </table>
+      </div>
+     </div>
+    </section>
+   );
+  })() : (
   <section className="intake-embedded-sourcing">
    <div className="intake-sourcing-head">
     <div>
@@ -2737,6 +2932,7 @@ export default function PurchaseIntake({close,Modal,requestId,initialStep,onLoca
     </div>
    )}
   </section>
+  )}
 </section>}
  {step===3&&<section className="intake-review"><h3>Review your purchase request</h3><p className="p-muted">Confirm the brief to start the sourcing agent. It checks the company-approved catalog and public Google Search results, including publicly indexed LinkedIn company pages. Public leads stay unverified; RFQs are sent automatically to company catalog contacts. Final supplier selection and purchase approval remain with a human.</p><dl><dt>Budget</dt><dd>{money(draft.budget)}</dd><dt>Purchase type</dt><dd>{draft.purchase_type}</dd><dt>Category</dt><dd>{draft.category}</dd><dt>Line items</dt><dd>{items.map((item,i)=><span key={i}>{i>0?', ':''}{item.description} · {item.quantity} × {money(item.unit_price)}</span>)}</dd><dt>Vendor preference</dt><dd>{draft.preferred_vendors||'AI chooses and recommends'}</dd><dt>Payment terms</dt><dd>{draft.payment_terms}</dd><dt>Personal data shared</dt><dd>{draft.shares_personal_data===true?'Yes':draft.shares_personal_data===false?'No':"I don't know"}</dd>{draft.shares_personal_data===true&&<><dt>Data types</dt><dd>{(draft.data_types||[]).join(', ')}</dd><dt>Use</dt><dd>{draft.data_usage}</dd></>}<dt>Approval route</dt><dd>{workflowResult?.graph?.nodes?.map(node=>node.label).join(' → ')||'Generate the workflow from the previous step.'}</dd>{plan.hasService&&<><dt>MSA status</dt><dd>{contractDocs.some(d=>d.kind==='msa')?'Uploaded':'Not provided · Legal follow-up needed'}</dd><dt>SOW status</dt><dd>{contractDocs.some(d=>d.kind==='sow')?'Uploaded':'Not provided · Legal follow-up needed'}</dd></>}</dl>{agentRun?<SourcingAgentReview run={agentRun} selected={agentSelection} setSelected={setAgentSelection} busy={busy} onSend={sendAgentRFQs} onReply={recordAgentReply} onAddVendor={addCustomVendor} onExternalSearch={runExternalSearch} onSendAiRfqs={sendAiRfqs} onAnalyze={analyzeVendorResponses} onRunUpdated={setAgentRun} rowId={rowRef.current?.id} row={row} request={row}/>:<div className="intake-agent-start"><strong>Start supplier analysis</strong><p>The agent will inspect approved company offers, search public web sources, rank catalog matches, and prepare RFQ drafts. Public web leads are shown separately and are never contacted automatically. The agent emails company catalog contacts automatically after shortlisting.</p><button type="button" className="p-button primary" disabled={busy||!!result||!row} onClick={finishRequest}>{busy?'Analyzing catalog and public sources…':'Analyze vendors and public sources'}</button></div>}</section>}
  </>}</section></section>

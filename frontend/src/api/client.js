@@ -178,6 +178,7 @@ export const sourcingApi = {
   restore: id => api.post(`/sourcing/${id}/restore`),
   detail: id => api.get(`/sourcing/${id}`),
   auditLog: id => api.get(`/sourcing/${id}/audit-log`),
+  approveCheckpoint: (id, payload) => api.post(`/sourcing/${id}/approve-checkpoint`, payload || {}),
   evaluateFinalInvoice: (id, payload) => api.post(`/sourcing/${id}/evaluate-final-invoice`, payload || {}),
   paypalCheckout: id => api.post(`/sourcing/${id}/paypal/checkout`),
   paypalCapture: id => api.post(`/sourcing/${id}/paypal/capture`),

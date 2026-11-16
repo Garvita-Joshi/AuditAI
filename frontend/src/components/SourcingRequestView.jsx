@@ -104,6 +104,7 @@ export default function SourcingRequestView({ id, onBack, onEdit }) {
       {plan?.graph ? (
         <WorkflowMindMap
           workflow={plan.graph}
+          fullWorkflow={plan}
           requestId={row?.id}
           assessment={row?.workspace?.workflow?.final_invoice_assessment}
           initialPaypal={row?.workspace?.workflow?.paypal_payment}

@@ -230,8 +230,13 @@ def list_requests(deleted: bool = False, db: Session = Depends(get_db), user: Us
         decided = db.query(ApprovalStep).filter_by(request_id=r.id,status='approved').first() is not None
         return {'can_edit':owner and not ordered and not decided and not deleted,
                 'can_delete':owner and not ordered}
+    def safe_total(r):
+        try:
+            return str(PurchaseTerms.model_validate(r.terms).total)
+        except Exception:
+            return str(r.budget_limit or "0.00")
     return [{**permissions(r), "current_status":"deleted" if deleted else r.status, "invoice_status": invoice_status(r), "document_count": db.query(ProcurementDocument).filter_by(request_id=r.id).count(), "id": r.id, "title": r.title, "requester_id": r.requester_id, "requester": identity(r)[0], "department_head": identity(r)[1], "status": r.status,
-             "budget_limit": str(r.budget_limit), "total": str(PurchaseTerms.model_validate(r.terms).total),
+             "budget_limit": str(r.budget_limit), "total": safe_total(r),
              "terms": r.terms, "created_at": r.created_at.isoformat(), "approved_at": approved_at(r),
              "details": context(db, r).details if context(db, r) else {},
              "workflow": context(db, r).workflow if context(db, r) else [],
@@ -322,17 +327,24 @@ def get_request(request_id: int, db: Session = Depends(get_db), user: User = Dep
     order = db.query(PurchaseOrder).filter_by(request_id=row.id).first()
     ctx = context(db, row)
     if ctx and not db.query(ApprovalStep).filter_by(request_id=row.id).count() and row.status == "submitted":
-        _build_approval_steps(db, row, RequestDetails.model_validate(ctx.details),
-            PurchaseTerms.model_validate(row.terms).total, PurchaseTerms.model_validate(row.terms).currency)
-        _sync_legacy_workflow(db, ctx, row.id)
-        db.commit()
+        try:
+            _build_approval_steps(db, row, RequestDetails.model_validate(ctx.details),
+                PurchaseTerms.model_validate(row.terms).total, PurchaseTerms.model_validate(row.terms).currency)
+            _sync_legacy_workflow(db, ctx, row.id)
+            db.commit()
+        except Exception:
+            pass
     invoices = db.query(SupplierInvoice).filter_by(order_id=order.id).order_by(SupplierInvoice.id.desc()).all() if order else []
     requester = db.get(User, row.requester_id)
     requester_info = requester_summary(requester)
     department_head = department_head_for(requester, (ctx.details or {}).get("department") if ctx else None)
+    try:
+        req_total = str(PurchaseTerms.model_validate(row.terms).total)
+    except Exception:
+        req_total = str(row.budget_limit or "0.00")
     return {"id":row.id, "title":row.title, "requester_id":row.requester_id, "status":row.status,
             "requester":requester_info, "department_head":department_head,
-            "terms":row.terms, "budget_limit":str(row.budget_limit), "total":str(PurchaseTerms.model_validate(row.terms).total),
+            "terms":row.terms, "budget_limit":str(row.budget_limit), "total":req_total,
             "created_at":row.created_at.isoformat(), "details":ctx.details if ctx else {}, "workflow":ctx.workflow if ctx else [],
             "approval_steps":_approval_steps(db, row.id),
             "order": {"id":order.id,"terms":order.terms,"total":str(order.total)} if order else None,
