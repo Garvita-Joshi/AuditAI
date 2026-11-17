@@ -29,7 +29,7 @@ export default function InvoiceReviewPage() {
   const [busyMl, setBusyMl] = useState(false);
   const [busyPay, setBusyPay] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
-  const [activeItemTab, setActiveItemTab] = useState('unified');
+  const [activeItemTab, setActiveItemTab] = useState('0');
   const [showAuditModal, setShowAuditModal] = useState(false);
 
   const loadData = async () => {
@@ -392,9 +392,9 @@ export default function InvoiceReviewPage() {
     };
   };
 
-  const currentMindMap = activeItemTab === 'unified'
-    ? (workflow.graph || { nodes: [], edges: [] })
-    : getItemMindMap(lineItems[Number(activeItemTab)], Number(activeItemTab));
+  const currentMindMap = lineItems.length > 0
+    ? getItemMindMap(lineItems[Number(activeItemTab) || 0], Number(activeItemTab) || 0)
+    : (workflow.graph || { nodes: [], edges: [] });
 
   return (
     <main className="invoice-review-page">
@@ -431,15 +431,98 @@ export default function InvoiceReviewPage() {
                 {money(invOcr.total || req.budget || 0, currency)}
               </span>
             </div>
-            <div className="ir-header-actions">
-              <button
-                type="button"
-                className="ir-btn"
-                onClick={() => setShowAuditModal(true)}
-                title="View immutable chronological audit time log trail"
-              >
-                <Clock size={14} /> Audit Log
-              </button>
+            <div className="ir-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {!allAuthoritiesApproved ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleApproveAll}
+                  disabled={busyBatch}
+                  style={{
+                    height: '34px',
+                    background: '#ef9976',
+                    color: '#14100c',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    border: 'none',
+                    padding: '0 14px',
+                    borderRadius: '7px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <UserCheck size={14} />
+                  {busyBatch ? 'Approving…' : 'Approve All Authorities'}
+                </button>
+              ) : !assessment ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleRunMl}
+                  disabled={busyMl}
+                  style={{
+                    height: '34px',
+                    background: '#ef9976',
+                    color: '#14100c',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    border: 'none',
+                    padding: '0 14px',
+                    borderRadius: '7px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Sparkles size={14} />
+                  {busyMl ? 'Evaluating ML…' : 'Send to ML Model'}
+                </button>
+              ) : !assessment.is_fraud && paypalPayment?.status !== 'completed' ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handlePaypalSettle}
+                  disabled={busyPay}
+                  style={{
+                    height: '34px',
+                    background: '#059669',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    border: 'none',
+                    padding: '0 14px',
+                    borderRadius: '7px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <CreditCard size={14} />
+                  {busyPay ? 'Disbursing…' : `Make Payment (${money(invOcr.total || req.budget || 0, currency)})`}
+                </button>
+              ) : paypalPayment?.status === 'completed' ? (
+                <span
+                  className="badge"
+                  style={{
+                    height: '34px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    background: 'rgba(16,185,129,0.18)',
+                    color: '#34d399',
+                    border: '1px solid rgba(16,185,129,0.35)',
+                    padding: '0 12px',
+                    fontWeight: 600,
+                    fontSize: '12px',
+                    borderRadius: '7px'
+                  }}
+                >
+                  <CheckCircle size={14} style={{ marginRight: 6 }} /> Paid ({paypalPayment.order_id})
+                </span>
+              ) : null}
               <button
                 type="button"
                 className="ir-btn"
@@ -467,230 +550,35 @@ export default function InvoiceReviewPage() {
         </div>
       )}
 
-      {/* ── Respective Approval Authorities Gate (Clean, Spacious) ── */}
-      <section className="ir-panel ir-authorities-panel">
-        <div className="ir-section-head">
-          <div>
-            <span className="ir-eyebrow">STAGE 3 · HUMAN AUTHORITY GATING</span>
-            <h2>
-              Respective Approval Authorities Gate
-              <span className="ir-gate-counter">
-                ({approvedCount} / {authorityNodes.length} Approved)
-              </span>
-            </h2>
-            <p className="ir-section-desc">
-              Each respective approval authority below received <em>"Have you approved this invoice?"</em>. All authorities must approve their checkpoint before Final ML Fraud Check and Payment Settlement unlock.
-            </p>
-          </div>
-          {!allAuthoritiesApproved && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busyBatch}
-              onClick={handleApproveAll}
-              style={{ background: '#ef9976', color: '#14100c', fontWeight: 800, border: 'none' }}
-            >
-              {busyBatch ? 'Approving…' : '✓ Approve All Remaining Authorities'}
-            </button>
-          )}
-        </div>
-
-        <div className="ir-authorities-grid">
-          {authorityNodes.map((n, idx) => {
-            const isApp = Boolean(nodeApprovals[n.id]?.approved);
-            const approvalRecord = nodeApprovals[n.id];
-            return (
-              <div key={n.id} className={`ir-auth-card ${isApp ? 'approved' : 'pending'}`}>
-                <div className="ir-auth-card-head">
-                  <span className="ir-auth-idx">{idx + 1}</span>
-                  <div>
-                    <h4 className="ir-auth-name">{n.label}</h4>
-                    <span className="ir-auth-group">{n.owner_group}</span>
-                  </div>
-                  {isApp ? (
-                    <span className="ir-auth-badge approved">✓ Approved</span>
-                  ) : (
-                    <span className="ir-auth-badge pending">Pending</span>
-                  )}
-                </div>
-
-                <div className="ir-auth-card-body">
-                  <div className="ir-auth-row">
-                    <span className="ir-k">Assigned Authority:</span>
-                    <span className="ir-v"><strong>{n.assignee?.name || n.owner_group}</strong> ({n.assignee?.email || 'prepares23@gmail.com'})</span>
-                  </div>
-                  <div className="ir-auth-row">
-                    <span className="ir-k">Mandatory Question:</span>
-                    <span className="ir-v italic">"Have you approved this invoice ({invOcr.invoice_number || 'INV'} · {currency} {invOcr.total || req.budget})?"</span>
-                  </div>
-                  {isApp && approvalRecord?.actor && (
-                    <div className="ir-auth-row approved-meta">
-                      <span className="ir-k">Signed Off By:</span>
-                      <span className="ir-v">{approvalRecord.actor}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="ir-auth-card-foot">
-                  {isApp ? (
-                    <span className="ir-auth-done-text">
-                      ✓ Authority Sign-Off Completed
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary ir-auth-btn"
-                      disabled={busyNodeId === n.id}
-                      onClick={() => handleApproveNode(n)}
-                    >
-                      <UserCheck size={14} />
-                      {busyNodeId === n.id ? 'Approving…' : `Approve as ${n.owner_group}`}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* ── STAGE 4 & 5 Gated Controls (ML Model & PayPal Settlement) ── */}
-        <div className="ir-pipeline-bottom-gates">
-          {/* Stage 4 ML Check */}
-          <div className={`ir-gate-box ${assessment ? 'completed' : allAuthoritiesApproved ? 'ready' : 'locked'}`}>
-            <div className="ir-gate-box-head">
-              <div className="ir-gate-icon-title">
-                <ShieldCheck size={20} className={assessment?.is_fraud ? 'text-danger' : assessment ? 'text-success' : 'text-muted'} />
-                <div>
-                  <h4>Stage 4 · Final Check Sent to ML Model</h4>
-                  <small>PyTorch Autoencoder + Isolation Forest Hybrid Classifier</small>
-                </div>
-              </div>
-              <div>
-                {!allAuthoritiesApproved ? (
-                  <span className="ir-badge-locked">🔒 Locked (Awaiting Authorities)</span>
-                ) : !assessment ? (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={busyMl}
-                    onClick={handleRunMl}
-                    style={{ background: '#ef9976', color: '#14100c', fontWeight: 800, border: 'none' }}
-                  >
-                    {busyMl ? 'Evaluating ML Model…' : '✨ Send Final Invoice to ML Model'}
-                  </button>
-                ) : (
-                  <span className={`ir-badge-${assessment.is_fraud ? 'danger' : 'success'}`}>
-                    {assessment.is_fraud ? '⚠️ FRAUD RISK FLAGGED' : '✓ CONSIDERED NOT FRAUD'}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {assessment && (
-              <div className="ir-ml-results">
-                <div className="ir-ml-stat">
-                  <span>Combined Anomaly Score</span>
-                  <strong>{((assessment.score || 0) * 100).toFixed(1)}%</strong>
-                  <small>Threshold: {((assessment.threshold || 0.9) * 100).toFixed(1)}%</small>
-                </div>
-                <div className="ir-ml-stat">
-                  <span>Autoencoder Percentile</span>
-                  <strong>{((assessment.autoencoder_percentile || 0) * 100).toFixed(1)}%</strong>
-                  <small>Raw MSE: {(assessment.autoencoder_raw_mse || 0.0005).toFixed(4)}</small>
-                </div>
-                <div className="ir-ml-stat">
-                  <span>Isolation Forest Percentile</span>
-                  <strong>{((assessment.isolation_forest_percentile || 0) * 100).toFixed(1)}%</strong>
-                  <small>Raw Score: {(assessment.isolation_forest_raw_score || 0.501).toFixed(4)}</small>
-                </div>
-                {assessment.recommendation && (
-                  <div className="ir-ml-verdict">
-                    <strong>ML Recommendation:</strong> {assessment.recommendation}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Stage 5 PayPal Settlement */}
-          <div className={`ir-gate-box ${paypalPayment?.status === 'completed' ? 'completed' : assessment && !assessment.is_fraud ? 'ready' : 'locked'}`}>
-            <div className="ir-gate-box-head">
-              <div className="ir-gate-icon-title">
-                <CreditCard size={20} className={paypalPayment?.status === 'completed' ? 'text-success' : 'text-muted'} />
-                <div>
-                  <h4>Stage 5 · Make Payment (PayPal Sandbox Settlement)</h4>
-                  <small>B2B Simulated Disbursement with Instant Reconciled Settlement</small>
-                </div>
-              </div>
-              <div>
-                {!allAuthoritiesApproved ? (
-                  <span className="ir-badge-locked">🔒 Locked (Awaiting Authorities)</span>
-                ) : !assessment ? (
-                  <span className="ir-badge-locked">🔒 Locked (Run ML Model First)</span>
-                ) : assessment.is_fraud ? (
-                  <span className="ir-badge-danger">⛔ Blocked by ML Fraud Gate</span>
-                ) : paypalPayment?.status === 'completed' ? (
-                  <span className="ir-badge-success">✓ Paid via PayPal Sandbox ({paypalPayment.order_id})</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={busyPay}
-                    onClick={handlePaypalSettle}
-                    style={{ background: '#059669', borderColor: '#059669', color: '#fff', fontWeight: 800 }}
-                  >
-                    {busyPay ? 'Disbursing…' : `💳 Make Payment (${currency} ${Number(invOcr.total || req.budget || 0).toLocaleString()})`}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {paypalPayment?.status === 'completed' && (
-              <div className="ir-payment-receipt">
-                <span>Transaction Order ID: <strong>{paypalPayment.order_id}</strong></span>
-                <span>Payer Account: <strong>prepares23@gmail.com (PayPal Sandbox B2B)</strong></span>
-                <span>Reconciled Amount: <strong>{currency} {Number(invOcr.total || req.budget || 0).toLocaleString()}</strong></span>
-                <span>Claims Ledger: <strong>INV-SR-{String(row.id).padStart(4, '0')} (Updated to APPROVED)</strong></span>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Distinct Mind Map for Each Item (As previously structured) ── */}
+      {/* ── Distinct Mind Map for Each Item (Structured, Clean) ── */}
       <section className="ir-panel ir-mindmap-panel">
         <div className="ir-section-head">
           <div>
-            <span className="ir-eyebrow">STRUCTURED APPROVAL MIND MAPS</span>
+            <span className="ir-eyebrow">STRUCTURED APPROVAL MIND MAP</span>
             <h2>
               <Network size={20} style={{ verticalAlign: 'middle', marginRight: 8, color: '#ef9976' }} />
-              Purchase &amp; Line-Item Mind Maps
+              Line-Item Approval &amp; Verification Mind Map
             </h2>
             <p className="ir-section-desc">
-              Inspect the tailored checkpoint paths. Switch between items to view the distinct approval, verification, and 3-way match topology specific to each line item.
+              Inspect the tailored checkpoint path and policy gates dynamically generated for this line item.
             </p>
           </div>
 
-          {/* Item Selector Tabs */}
-          <div className="ir-item-tabs">
-            <button
-              type="button"
-              className={`ir-tab-btn ${activeItemTab === 'unified' ? 'active' : ''}`}
-              onClick={() => setActiveItemTab('unified')}
-            >
-              <Layers size={14} /> All Items Combined Map
-            </button>
-            {lineItems.map((item, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className={`ir-tab-btn ${activeItemTab === String(idx) ? 'active' : ''}`}
-                onClick={() => setActiveItemTab(String(idx))}
-              >
-                <Tag size={13} /> Item {idx + 1}: {(item.description || `Line Item ${idx + 1}`).slice(0, 26)}…
-              </button>
-            ))}
-          </div>
+          {/* Item Selector Tabs (only shown if multiple items) */}
+          {lineItems.length > 1 && (
+            <div className="ir-item-tabs">
+              {lineItems.map((item, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`ir-tab-btn ${activeItemTab === String(idx) ? 'active' : ''}`}
+                  onClick={() => setActiveItemTab(String(idx))}
+                >
+                  <Tag size={13} /> Item {idx + 1}: {(item.description || `Line Item ${idx + 1}`).slice(0, 28)}…
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Mind Map Canvas */}

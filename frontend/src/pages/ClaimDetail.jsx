@@ -403,35 +403,41 @@ export default function ClaimDetail() {
           </div>
 
           {/* Clean Receipt Sub-box */}
-          <div className="mt-5 pt-4 border-t border-glass">
+          <div className="mt-5 pt-4 border-t border-slate-200">
             {hasReceiptData ? (
-              <div className="bg-bg-surface p-3 rounded-lg border border-border-light text-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <strong className="text-primary flex items-center gap-1.5">
-                    <CheckCircle2 size={14} className="text-status-success" /> OCR Extraction Verified
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm">
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200/70">
+                  <strong className="text-slate-900 font-semibold flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-600" /> OCR Extraction Verified
                   </strong>
-                  <span className="text-muted">Extraction: {ocr_result.extraction_method}</span>
+                  <span className="badge badge-blue text-xs font-medium">Extraction: {ocr_result.extraction_method}</span>
                 </div>
-                <div className="grid-cols-2 gap-2 text-secondary">
-                  <div>Vendor on bill: <strong className="text-primary">{ocr_result.extracted_vendor || 'Not detected'}</strong></div>
-                  <div>Amount on bill: <strong className="text-primary">{ocr_result.extracted_amount ? `₹${Number(ocr_result.extracted_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : 'Not detected'}</strong></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-700">
+                  <div className="bg-white p-3 rounded-lg border border-slate-200/80 shadow-xs">
+                    <span className="text-xs text-slate-500 block mb-0.5 font-medium">Vendor on bill</span>
+                    <strong className="text-slate-900 text-sm">{ocr_result.extracted_vendor || 'Not detected'}</strong>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border border-slate-200/80 shadow-xs">
+                    <span className="text-xs text-slate-500 block mb-0.5 font-medium">Amount on bill</span>
+                    <strong className="text-slate-900 text-sm">{ocr_result.extracted_amount ? `₹${Number(ocr_result.extracted_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : 'Not detected'}</strong>
+                  </div>
                 </div>
                 {ocr_result.raw_ocr_text && (
-                  <details className="mt-2 text-muted">
-                    <summary className="cursor-pointer hover:text-primary">View extracted receipt text</summary>
-                    <pre className="mono-pre mt-1.5 p-2 text-xs" style={{ maxHeight: '80px', overflowY: 'auto' }}>
+                  <details className="mt-3 text-slate-500">
+                    <summary className="cursor-pointer hover:text-slate-900 font-medium text-xs">View extracted receipt text</summary>
+                    <pre className="mono-pre mt-2 p-3 text-xs bg-white rounded-lg border border-slate-200 text-slate-800" style={{ maxHeight: '100px', overflowY: 'auto' }}>
                       {ocr_result.raw_ocr_text}
                     </pre>
                   </details>
                 )}
               </div>
             ) : (
-              <div className="p-3 rounded-lg bg-bg-surface/50 border border-border-light/60 flex items-center justify-between text-xs text-secondary">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs text-slate-600">
                 <div className="flex items-center gap-2">
-                  <Info size={15} className="text-accent-primary" />
+                  <Info size={16} className="text-indigo-600" />
                   <span>No physical receipt image uploaded. Validated via core expense ledger data.</span>
                 </div>
-                <span className="badge text-xs" style={{ background: 'rgba(255,255,255,0.05)' }}>Standard ERP</span>
+                <span className="badge text-xs bg-white border border-slate-200 text-slate-700">Standard ERP</span>
               </div>
             )}
           </div>
@@ -457,8 +463,8 @@ export default function ClaimDetail() {
               <p className="text-secondary text-center italic py-10">This claim has not been scored yet.</p>
             ) : (
               <>
-                <div className="flex justify-center my-2">
-                  <ScoreGauge label="Anomaly Index (0–100)" score={prediction.combined_fraud_score} size={170} />
+                <div className="flex justify-center my-4 py-1">
+                  <ScoreGauge label="Anomaly Index (0–100)" score={prediction.combined_fraud_score} size={190} />
                 </div>
 
                 {/* Plain-English Verdict Box */}
@@ -499,13 +505,13 @@ export default function ClaimDetail() {
                 <div className="diagnostics-metric-row">
                   <div className="diagnostics-metric-box">
                     <span className="text-xs text-muted block">Reconstruction Error</span>
-                    <strong className="text-sm">{prediction.reconstruction_error?.toFixed(4) ?? 'N/A'}</strong>
-                    <small className="text-[10px] text-muted block mt-0.5">Learned normality fit</small>
+                    <strong className="text-sm text-slate-900">{prediction.reconstruction_error?.toFixed(4) ?? 'N/A'}</strong>
+                    <small className="text-[11px] text-muted block mt-0.5">Learned normality fit</small>
                   </div>
                   <div className="diagnostics-metric-box">
                     <span className="text-xs text-muted block">Isolation Forest</span>
-                    <strong className="text-sm">{prediction.isolation_forest_score?.toFixed(4) ?? 'N/A'}</strong>
-                    <small className="text-[10px] text-muted block mt-0.5">Outlier separation index</small>
+                    <strong className="text-sm text-slate-900">{prediction.isolation_forest_score?.toFixed(4) ?? 'N/A'}</strong>
+                    <small className="text-[11px] text-muted block mt-0.5">Outlier separation index</small>
                   </div>
                 </div>
 
@@ -526,186 +532,189 @@ export default function ClaimDetail() {
       {/* ── MASTER REFERENCE DATA & INTERNAL COLLUSION SCREENING ──────────────── */}
       {master_check && (
         <div
-          className="glass-card mb-6"
+          className="master-screening-card"
           style={{
-            padding: '22px 24px',
             border: master_check.collusion_screening?.passed
-              ? '1px solid rgba(16, 185, 129, 0.3)'
-              : '1px solid rgba(239, 68, 68, 0.35)',
+              ? '1.5px solid #bbf7d0'
+              : '1.5px solid #fecaca',
           }}
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2.5">
-              <Database
-                size={20}
-                className={master_check.collusion_screening?.passed ? 'text-accent-primary' : 'text-status-danger'}
-              />
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-xl flex items-center justify-center ${master_check.collusion_screening?.passed ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                <Database size={22} />
+              </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold tracking-tight" style={{ margin: 0 }}>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900" style={{ margin: 0 }}>
                     Master Reference Data & Internal Collusion Screening
                   </h2>
                   <span
                     className={`badge ${
                       master_check.collusion_screening?.passed ? 'badge-green' : 'badge-red'
-                    } text-[11px] font-semibold`}
+                    } text-xs font-semibold px-2.5 py-0.5`}
                   >
                     {master_check.collusion_screening?.verdict === 'CLEAN'
                       ? '✓ Ground Truth Verified'
                       : '⚠ Conflict Flagged'}
                   </span>
                 </div>
-                <p className="text-xs text-muted mt-0.5">
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
                   Real-time cross-referencing against Company Vendor Master and HR Roster to detect self-dealing, ghost vendors, and payroll kickbacks.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="badge text-xs" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <span className="badge text-xs px-3 py-1 font-medium bg-slate-100 text-slate-700 border border-slate-200">
                 Deterministic Screening Engine
               </span>
             </div>
           </div>
 
           {/* 3 Pillars Grid: Vendor Master, Employee Roster, Collusion Verification */}
-          <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+          <div className="master-pillars-grid">
             {/* 1. Vendor Master Baseline */}
-            <div className="p-3.5 rounded-lg bg-bg-surface border border-border-light text-xs">
-              <div className="flex items-center justify-between font-semibold mb-2.5">
-                <span className="flex items-center gap-1.5 text-primary">
-                  <Building2 size={15} className="text-accent-primary" /> Vendor Master Baseline
-                </span>
-                <span
-                  className={`badge text-[10px] ${
-                    master_check.vendor?.is_registered ? 'badge-green' : 'badge-amber'
-                  }`}
-                >
-                  {master_check.vendor?.status || 'Active'}
-                </span>
-              </div>
-              <div className="space-y-1.5 text-secondary">
-                <div className="flex justify-between">
-                  <span className="text-muted">Entity:</span>
-                  <strong className="text-primary">
-                    {master_check.vendor?.name} ({master_check.vendor?.id})
-                  </strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Tax ID (GSTIN):</span>
-                  <span className="font-mono">{master_check.vendor?.gstin}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">PAN Record:</span>
-                  <span className="font-mono">{master_check.vendor?.pan}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Registered Bank:</span>
-                  <span className="font-mono text-primary">{master_check.vendor?.bank_account_masked}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Address:</span>
-                  <span className="truncate max-w-[160px]" title={master_check.vendor?.address}>
-                    {master_check.vendor?.address}
+            <div className="master-pillar-box">
+              <div>
+                <div className="flex items-center justify-between font-bold mb-3 pb-2.5 border-b border-slate-200/80">
+                  <span className="flex items-center gap-2 text-slate-900 text-sm">
+                    <Building2 size={17} className="text-indigo-600" /> Vendor Master Baseline
                   </span>
+                  <span
+                    className={`badge text-xs font-semibold px-2.5 py-0.5 ${
+                      master_check.vendor?.is_registered ? 'badge-green' : 'badge-amber'
+                    }`}
+                  >
+                    {master_check.vendor?.status || 'Active'}
+                  </span>
+                </div>
+                <div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Entity</span>
+                    <strong className="master-data-value">
+                      {master_check.vendor?.name} {master_check.vendor?.id && <span className="text-xs font-mono text-slate-500 font-normal">({master_check.vendor?.id})</span>}
+                    </strong>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Tax ID (GSTIN)</span>
+                    <span className="master-data-value font-mono text-xs">{master_check.vendor?.gstin || 'Not on file'}</span>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">PAN Record</span>
+                    <span className="master-data-value font-mono text-xs">{master_check.vendor?.pan || 'Not on file'}</span>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Registered Bank</span>
+                    <span className="master-data-value font-mono text-xs">{master_check.vendor?.bank_account_masked || 'None'}</span>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Address</span>
+                    <span className="master-data-value text-xs truncate max-w-[170px]" title={master_check.vendor?.address}>
+                      {master_check.vendor?.address || 'Not on file'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* 2. Employee HR Roster */}
-            <div className="p-3.5 rounded-lg bg-bg-surface border border-border-light text-xs">
-              <div className="flex items-center justify-between font-semibold mb-2.5">
-                <span className="flex items-center gap-1.5 text-primary">
-                  <Users size={15} className="text-accent-primary" /> HR Employee Roster
-                </span>
-                <span
-                  className={`badge text-[10px] ${
-                    master_check.employee?.is_active ? 'badge-green' : 'badge-red'
-                  }`}
-                >
-                  {master_check.employee?.status || 'Active Roster'}
-                </span>
-              </div>
-              <div className="space-y-1.5 text-secondary">
-                <div className="flex justify-between">
-                  <span className="text-muted">Claimant:</span>
-                  <strong className="text-primary">
-                    {master_check.employee?.name} ({master_check.employee?.id})
-                  </strong>
+            <div className="master-pillar-box">
+              <div>
+                <div className="flex items-center justify-between font-bold mb-3 pb-2.5 border-b border-slate-200/80">
+                  <span className="flex items-center gap-2 text-slate-900 text-sm">
+                    <Users size={17} className="text-indigo-600" /> HR Employee Roster
+                  </span>
+                  <span
+                    className={`badge text-xs font-semibold px-2.5 py-0.5 ${
+                      master_check.employee?.is_active ? 'badge-green' : 'badge-red'
+                    }`}
+                  >
+                    {master_check.employee?.status || 'Active Roster'}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Department:</span>
-                  <span>{master_check.employee?.department}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Tenure Status:</span>
-                  <span className="text-status-success font-medium">Valid Active Employee</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Disbursement Bank:</span>
-                  <span className="font-mono text-primary">{master_check.employee?.bank_account_masked}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Roster Source:</span>
-                  <span>{master_check.employee?.source}</span>
+                <div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Claimant</span>
+                    <strong className="master-data-value">
+                      {master_check.employee?.name} {master_check.employee?.id && <span className="text-xs font-mono text-slate-500 font-normal">({master_check.employee?.id})</span>}
+                    </strong>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Department</span>
+                    <span className="master-data-value text-xs">{master_check.employee?.department || 'Operations'}</span>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Tenure Status</span>
+                    <span className="text-emerald-700 font-semibold text-xs bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Valid Active Employee</span>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Disbursement Bank</span>
+                    <span className="master-data-value font-mono text-xs">{master_check.employee?.bank_account_masked || 'None'}</span>
+                  </div>
+                  <div className="master-data-row">
+                    <span className="master-data-label">Roster Source</span>
+                    <span className="master-data-value text-xs">{master_check.employee?.source || 'Internal Staff Directory'}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* 3. Anti-Collusion & Account Collision Check */}
             <div
-              className="p-3.5 rounded-lg border text-xs flex flex-col justify-between"
+              className="master-pillar-box"
               style={{
                 background: master_check.collusion_screening?.passed
-                  ? 'rgba(16, 185, 129, 0.05)'
-                  : 'rgba(239, 68, 68, 0.08)',
+                  ? '#f0fdf4'
+                  : '#fff1f2',
                 borderColor: master_check.collusion_screening?.passed
-                  ? 'rgba(16, 185, 129, 0.25)'
-                  : 'rgba(239, 68, 68, 0.35)',
+                  ? '#bbf7d0'
+                  : '#fecdd3',
               }}
             >
               <div>
-                <div className="flex items-center justify-between font-semibold mb-2">
-                  <span className="flex items-center gap-1.5 text-primary">
+                <div className="flex items-center justify-between font-bold mb-3 pb-2.5 border-b border-slate-200/60">
+                  <span className="flex items-center gap-2 text-slate-900 text-sm">
                     <ShieldCheck
-                      size={16}
+                      size={18}
                       className={
-                        master_check.collusion_screening?.passed ? 'text-status-success' : 'text-status-danger'
+                        master_check.collusion_screening?.passed ? 'text-emerald-600' : 'text-rose-600'
                       }
                     />
                     Collusion Screening
                   </span>
                   <span
-                    className={`badge text-[10px] ${
+                    className={`badge text-xs font-semibold px-2.5 py-0.5 ${
                       master_check.collusion_screening?.passed ? 'badge-green' : 'badge-red'
                     }`}
                   >
                     {master_check.collusion_screening?.verdict}
                   </span>
                 </div>
-                <p className="text-secondary leading-relaxed mb-2.5">
+                <p className="text-xs leading-relaxed mb-3 text-slate-700">
                   {master_check.collusion_screening?.summary}
                 </p>
               </div>
-              <div className="space-y-1 pt-2 border-t border-border-light/50 text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-muted">Bank Collision (B_vendor == B_emp):</span>
+
+              <div className="space-y-2 pt-3 border-t border-slate-200/60 text-xs">
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-white/95 border border-slate-200 shadow-xs">
+                  <span className="text-slate-600 font-medium">Bank Collision (B_vendor == B_emp):</span>
                   <span
                     className={
                       master_check.collusion_screening?.bank_collision
-                        ? 'text-status-danger font-bold'
-                        : 'text-status-success font-medium'
+                        ? 'text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200'
+                        : 'text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200'
                     }
                   >
                     {master_check.collusion_screening?.bank_collision ? 'FAIL (Collision)' : 'PASS (Distinct)'}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">PAN / Identity Overlap:</span>
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-white/95 border border-slate-200 shadow-xs">
+                  <span className="text-slate-600 font-medium">PAN / Identity Overlap:</span>
                   <span
                     className={
                       master_check.collusion_screening?.pan_collision
-                        ? 'text-status-danger font-bold'
-                        : 'text-status-success font-medium'
+                        ? 'text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200'
+                        : 'text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200'
                     }
                   >
                     {master_check.collusion_screening?.pan_collision ? 'FAIL (Overlap)' : 'PASS (Distinct)'}

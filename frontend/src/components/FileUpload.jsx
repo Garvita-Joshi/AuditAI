@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { UploadCloud, File as FileIcon, X, CheckCircle, AlertCircle } from 'lucide-react';
 import './FileUpload.css';
 
-export default function FileUpload({ onUpload, accept, label, multiple = false, uploadState = 'idle' }) {
+export default function FileUpload({ onUpload, accept, label, multiple = false, uploadState = 'idle', onReset }) {
   const fileInputRef = useRef(null);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -106,10 +106,42 @@ export default function FileUpload({ onUpload, accept, label, multiple = false, 
           <p className="text-secondary mt-2">This may take a moment</p>
         </div>
       ) : (
-        <div className="upload-success glass-card text-center py-12">
-          <CheckCircle size={48} className="text-status-success mx-auto mb-4" />
-          <h3 className="text-xl font-medium">Upload Complete</h3>
-          <button className="btn btn-secondary mt-6" onClick={() => setSelectedFiles([])}>
+        <div
+          className="upload-success glass-card text-center flex flex-col items-center justify-center mx-auto"
+          style={{
+            maxWidth: '320px',
+            padding: '20px 24px',
+            borderRadius: '12px',
+            marginTop: '12px',
+            marginBottom: '12px'
+          }}
+        >
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: '50%',
+              background: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 10
+            }}
+          >
+            <CheckCircle size={22} className="text-status-success" />
+          </div>
+          <h3 className="text-base font-semibold text-primary" style={{ margin: 0 }}>
+            Upload Complete
+          </h3>
+          <button
+            className="btn btn-secondary text-xs mt-3.5"
+            style={{ padding: '6px 14px', borderRadius: '6px' }}
+            onClick={() => {
+              setSelectedFiles([]);
+              if (onReset) onReset();
+            }}
+          >
             Upload Another
           </button>
         </div>

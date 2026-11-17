@@ -30,7 +30,7 @@ export default function Navbar() {
   const displayName = companyName && companyName !== 'Acme Global Corp' ? companyName : 'Demo Industries Inc';
 
   return (
-    <nav className="navbar glass-card" aria-label="Main navigation">
+    <nav className="navbar" aria-label="Main navigation">
       <div className="navbar-content">
         <div className="navbar-brand" onClick={handleNavClick('/procurement')} style={{ cursor: 'pointer' }}>
           <img className="brand-logo" src="/auditai-logo.png" alt="AuditAI mascot" />
@@ -123,18 +123,14 @@ export default function Navbar() {
             </span>
           </div>
 
-          {/* PayPal Sandbox Environment Badge */}
-          <div
-            className="navbar-paypal-badge"
-            title="PayPal Sandbox B2B Gateway · Safe simulation mode active"
-          >
-            <span className="navbar-paypal-dot" aria-hidden="true" />
-            <span className="navbar-paypal-text">PayPal sandbox</span>
-          </div>
-
           <div className="navbar-user" title={user?.roles?.join(', ')}>
-            <strong>{user?.display_name || user?.email}</strong>
-            <small>{(user?.roles?.includes('admin') || user?.role === 'admin') ? 'Administrator' : (user?.role || 'Employee')}</small>
+            <div className="navbar-user-avatar">
+              {(user?.display_name || user?.email || 'A').charAt(0).toUpperCase()}
+            </div>
+            <div className="navbar-user-info">
+              <strong>{user?.display_name || user?.email}</strong>
+              <small>{(user?.roles?.includes('admin') || user?.role === 'admin') ? 'Administrator' : (user?.role || 'Employee')}</small>
+            </div>
           </div>
 
           {isAdmin && (

@@ -57,8 +57,8 @@ def _load_image(image_path: str) -> Optional[np.ndarray]:
         try:
             import pypdfium2 as pdfium
             with pdfium.PdfDocument(str(path)) as doc:
-                if len(doc) != 1:
-                    raise ValueError('Upload one receipt page per file.')
+                if len(doc) < 1:
+                    raise ValueError('PDF file contains no pages.')
                 page = doc[0]
                 bitmap = page.render(scale=2)
                 try:

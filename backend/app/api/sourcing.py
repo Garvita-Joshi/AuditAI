@@ -110,6 +110,9 @@ def current_progress(db, row):
     if not run:
         return {'status':row.status, 'vendors':0, 'sent':0, 'replies':0, 'pending':0}
     summary = run.summary or {}
+    if summary.get('is_invoice_upload'):
+        vendors = db.query(AgentVendor).filter_by(run_id=run.id).all()
+        return {'status': row.status, 'vendors': len(vendors), 'sent': 0, 'replies': 0, 'pending': 0}
     fingerprint = hashlib.sha256(json.dumps(Requirements.model_validate(row.requirements).model_dump(mode='json'),sort_keys=True).encode()).hexdigest()
     if summary.get('brief_fingerprint') and summary['brief_fingerprint'] != fingerprint:
         return {'status':'requirements_changed', 'run_id':run.id}
@@ -164,8 +167,16 @@ def workflow(id: int, db: Session = Depends(get_db), user: User = Depends(requir
     if workspace is None:
         workspace = SourcingWorkspace(request_id=id)
         db.add(workspace)
-    workspace.workflow = graph
+
+    existing_wf = dict(workspace.workflow or {})
+    merged_wf = dict(graph)
+    for key in ("invoice_ocr_details", "node_approvals", "final_invoice_assessment", "paypal_payment"):
+        if key in existing_wf and key not in merged_wf:
+            merged_wf[key] = existing_wf[key]
+
+    workspace.workflow = merged_wf
     workspace.updated_at = datetime.utcnow()
+    flag_modified(workspace, "workflow")
     record_action(
         db, 'sourcing', row.id, user.id, 'workflow_plan_generated',
         source=graph.get('source', 'rules'),
@@ -174,7 +185,7 @@ def workflow(id: int, db: Session = Depends(get_db), user: User = Depends(requir
         note=f"Approval workflow mind map generated via {graph.get('source', 'rules')}."
     )
     db.commit()
-    return graph
+    return merged_wf
 
 
 @router.post('/{id}/approve-checkpoint')
@@ -806,14 +817,37 @@ def edit(id: int, payload: Edit, db: Session = Depends(get_db), user: User = Dep
     if workspace is None:
         workspace = SourcingWorkspace(request_id=id)
         db.add(workspace)
-    if requirements != row.requirements:
-        workspace.workflow = None
+
+    old_reqs = dict(row.requirements or {})
+    sourcing_critical_keys = ('product', 'line_items', 'budget', 'currency', 'purchase_type', 'category', 'preferred_vendors')
+    was_invoice = bool(old_reqs.get('is_invoice_upload') or (workspace.workflow and workspace.workflow.get('invoice_ocr_details', {}).get('is_invoice_upload')))
+    if was_invoice:
+        requirements['is_invoice_upload'] = True
+
+    changed = any(requirements.get(k) != old_reqs.get(k) for k in sourcing_critical_keys)
+    if changed:
         record_action(db,'sourcing',id,user.id,'request_edited',version=payload.version+1)
+        if workspace.workflow:
+            old_wf = dict(workspace.workflow)
+            preserved = {k: old_wf[k] for k in ('invoice_ocr_details', 'node_approvals', 'final_invoice_assessment', 'paypal_payment') if k in old_wf}
+            if not was_invoice:
+                workspace.workflow = None
+            else:
+                workspace.workflow.update(preserved)
+                flag_modified(workspace, 'workflow')
+
     if payload.intake_step is not None:
         workspace.step = payload.intake_step
     workspace.updated_at = datetime.utcnow()
+
+    new_status = row.status
+    if not was_invoice:
+        new_status = 'ready_for_research' if payload.confirm else 'draft'
+    elif changed:
+        new_status = 'submitted'
+
     return save(db,row,payload.version, requirements=requirements,
-        status='ready_for_research' if payload.confirm else 'draft', messages=row.messages +
+        status=new_status, messages=row.messages +
         [{'role':'assistant','text':'Requirements confirmed for future research.' if payload.confirm else 'Form details saved. Review the final summary in step four.'}])
 
 
@@ -1170,16 +1204,69 @@ def sourcing_agent_config(user: User = Depends(require_authenticated_user)):
 def start_sourcing_agent(id: int, db: Session = Depends(get_db), user: User = Depends(require_authenticated_user)):
     _ensure_agent_tables(db)
     row = owned(db, id, user)
-    if row.status != 'ready_for_research':
+    workspace = db.get(SourcingWorkspace, id)
+    wf_data = dict((workspace.workflow if workspace else None) or {})
+    is_invoice = bool((row.requirements or {}).get("is_invoice_upload") or wf_data.get("invoice_ocr_details", {}).get("is_invoice_upload"))
+
+    if row.status != 'ready_for_research' and not is_invoice:
         raise HTTPException(409, 'Save and confirm the current purchase brief before starting the sourcing agent.')
     req = Requirements.model_validate(row.requirements)
     absent = missing(req)
-    if absent:
+    if absent and not is_invoice:
         raise HTTPException(422, 'The confirmed brief is incomplete: ' + ', '.join(absent))
     fingerprint = hashlib.sha256(json.dumps(req.model_dump(mode='json'), sort_keys=True).encode()).hexdigest()
     previous = db.query(AgentRun).filter_by(request_id=id, owner_id=user.id).order_by(AgentRun.id.desc()).first()
     if previous and (previous.summary or {}).get('brief_fingerprint') == fingerprint:
         return process_autonomous_sourcing_cycle(db, previous, row, user.email, dispatch_pending=True)
+
+    if is_invoice:
+        supplier_id = (req.preferred_vendors or "Verified Supplier").strip()
+        inv_ocr = wf_data.get("invoice_ocr_details") or {}
+        supplier_name = inv_ocr.get("supplier_name") or supplier_id
+        inv_num = inv_ocr.get("invoice_number") or f"INV-SR-{row.id:04d}"
+        clean_email = "accounts@" + re.sub(r'[^a-zA-Z0-9]', '', supplier_name.lower())[:15] + ".com"
+        run = AgentRun(request_id=row.id, owner_id=user.id, status='vendors_shortlisted', summary={
+            'batch_label': f"{req.product or 'Invoice Requisition'} · Request #{row.id}",
+            'product': req.product,
+            'quantity': req.quantity,
+            'brief_fingerprint': fingerprint,
+            'currency': req.currency,
+            'catalog_scope': 'invoice direct match',
+            'matched_vendor_count': 1,
+            'shortlisted_count': 1,
+            'sent_count': 0, 'replied_count': 0, 'pending_response_count': 0,
+            'is_invoice_upload': True,
+            'invoice_number': inv_num,
+            'decision_note': f"Pre-listed supplier '{supplier_name}' from verified invoice. AI external discovery bypassed.",
+        })
+        db.add(run)
+        db.flush()
+        db.add(AgentVendor(
+            run_id=run.id,
+            vendor_id=supplier_id[:90],
+            offer_id="invoice-direct-match",
+            vendor_name=supplier_name[:190],
+            vendor_email=clean_email,
+            synthetic=0,
+            rank=1,
+            score=100,
+            reasons=[f"Direct supplier extracted from invoice {inv_num}", "Master catalog match confirmed"],
+            offer={
+                "vendor_name": supplier_name,
+                "vendor_id": supplier_id,
+                "total": str(req.budget or "1000.00"),
+                "currency": req.currency,
+                "invoice_number": inv_num,
+                "status": "verified",
+            },
+            rfq_subject=f"Reconciled PO: {inv_num} — {supplier_name}",
+            rfq_body=f"Invoice {inv_num} items reconciled against purchase requisition.",
+            rfq_approved=True,
+            status="selected"
+        ))
+        db.commit()
+        db.refresh(run)
+        return process_autonomous_sourcing_cycle(db, run, row, user.email, dispatch_pending=False)
     try:
         state = run_sourcing_agent(req.model_dump(mode='json'))
     except Exception as exc:

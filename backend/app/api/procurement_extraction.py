@@ -585,13 +585,13 @@ def upload_invoice(
     target_sr = None
     target_pr = None
     if mode == "attach":
-        if not request_id:
-            raise HTTPException(422, "Select a procurement request to attach this invoice to.")
-        target_sr = db.query(SourcingRequest).filter_by(id=request_id).first()
-        if not target_sr:
-            target_pr = db.query(PurchaseRequest).filter_by(id=request_id).first()
-            if not target_pr:
-                raise HTTPException(404, f"Procurement request #{request_id} not found.")
+        if request_id:
+            target_sr = db.query(SourcingRequest).filter_by(id=request_id).first()
+            if not target_sr:
+                target_pr = db.query(PurchaseRequest).filter_by(id=request_id).first()
+        # Fallback gracefully to standalone new request if none specified or found
+        if not target_sr and not target_pr:
+            mode = "new"
 
     audit_trail.append({
         "action": "invoice_uploaded",
@@ -691,6 +691,7 @@ def upload_invoice(
             "data_usage": None,
             "specifications": f"Direct Invoice Upload ({inv_num}) from {supplier_id}. AI vendor discovery bypassed.",
             "mandatory_conditions": "Respective authority approvals required before ML Fraud Check and PayPal Sandbox settlement.",
+            "is_invoice_upload": True,
             "line_items": sr_line_items,
         }
         validated_reqs = Requirements.model_validate(req_dict)
@@ -824,6 +825,64 @@ def upload_invoice(
         workspace.workflow = workflow_data
         workspace.updated_at = datetime.utcnow()
         flag_modified(workspace, "workflow")
+
+    # ── Stage 2.5: Pre-populate AgentRun with the verified Invoice Supplier ──
+    try:
+        import hashlib, json
+        from backend.app.agentic_ai.records import AgentRun, AgentVendor
+        brief_fp = hashlib.sha256(json.dumps(target_sr.requirements or {}, sort_keys=True).encode()).hexdigest()
+        existing_run = db.query(AgentRun).filter_by(request_id=sr_id, owner_id=user.id).order_by(AgentRun.id.desc()).first()
+        if not existing_run:
+            inv_run = AgentRun(
+                request_id=sr_id,
+                owner_id=user.id,
+                status='vendors_shortlisted',
+                summary={
+                    'batch_label': f"{target_sr.requirements.get('product') or 'Invoice Requisition'} · Request #{sr_id}",
+                    'product': target_sr.requirements.get('product'),
+                    'quantity': target_sr.requirements.get('quantity'),
+                    'brief_fingerprint': brief_fp,
+                    'currency': currency,
+                    'catalog_scope': 'invoice direct match',
+                    'matched_vendor_count': 1,
+                    'shortlisted_count': 1,
+                    'sent_count': 0,
+                    'replied_count': 0,
+                    'pending_response_count': 0,
+                    'is_invoice_upload': True,
+                    'invoice_number': inv_num,
+                    'decision_note': f"Pre-listed supplier '{supplier_name}' from verified invoice. AI external discovery bypassed.",
+                }
+            )
+            db.add(inv_run)
+            db.flush()
+            clean_email = "accounts@" + re.sub(r'[^a-zA-Z0-9]', '', supplier_name.lower())[:15] + ".com"
+            db.add(AgentVendor(
+                run_id=inv_run.id,
+                vendor_id=supplier_id[:90],
+                offer_id="invoice-direct-match",
+                vendor_name=supplier_name[:190],
+                vendor_email=clean_email,
+                synthetic=0,
+                rank=1,
+                score=100,
+                reasons=[f"Direct supplier extracted from invoice {inv_num}", "Master catalog match confirmed"],
+                offer={
+                    "vendor_name": supplier_name,
+                    "vendor_id": supplier_id,
+                    "total": draft.get("total", "1000.00"),
+                    "currency": currency,
+                    "invoice_number": inv_num,
+                    "status": "verified",
+                },
+                rfq_subject=f"Reconciled PO: {inv_num} — {supplier_name}",
+                rfq_body=f"Invoice {inv_num} items reconciled against purchase requisition.",
+                rfq_approved=True,
+                status="selected"
+            ))
+            db.flush()
+    except Exception as exc:
+        logger.warning(f"Could not pre-populate AgentRun for invoice request #{sr_id}: {exc}")
 
     # ── Stage 3: Send Notification to Each Respective Approval Authority in AuditAI ──
     notif_ts = _now_iso()

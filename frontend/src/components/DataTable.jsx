@@ -44,7 +44,7 @@ export default function DataTable({ columns, data, onRowClick, sortBy, sortOrder
               <th
                 key={col.key}
                 onClick={() => col.sortable && onSort && onSort(col.key)}
-                style={{ cursor: col.sortable ? 'pointer' : 'default' }}
+                style={{ ...(col.style || {}), cursor: col.sortable ? 'pointer' : 'default' }}
               >
                 <div className="flex items-center gap-2">
                   {col.label}
@@ -64,7 +64,7 @@ export default function DataTable({ columns, data, onRowClick, sortBy, sortOrder
               style={{ cursor: onRowClick ? 'pointer' : 'default' }}
             >
               {columns.map(col => (
-                <td key={col.key}>
+                <td key={col.key} style={col.style}>
                   {col.render ? col.render(row[col.key], row) : row[col.key]}
                 </td>
               ))}

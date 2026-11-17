@@ -73,7 +73,20 @@ export default function GlobalCopilot() {
   const [launcherPos, setLauncherPos] = useState(() => {
     try {
       const saved = localStorage.getItem('auditai_mascot_launcher_pos');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p && typeof p.left === 'number') {
+          const validLeft = Math.max(16, Math.min(window.innerWidth - 90, p.left));
+          if (p.top !== null && typeof p.top === 'number') {
+            if (p.top >= 76 && p.top <= window.innerHeight - 80) {
+              return { left: validLeft, top: p.top, bottom: null, right: null };
+            }
+          }
+          if (p.bottom !== null && typeof p.bottom === 'number') {
+            return { left: validLeft, bottom: Math.max(16, p.bottom), top: null, right: null };
+          }
+        }
+      }
     } catch {}
     return { left: 28, bottom: 24, top: null, right: null };
   });
@@ -253,11 +266,11 @@ export default function GlobalCopilot() {
     sendMessage(prompt);
   };
 
-  // Position style calculations
+  // Position style calculations - ensure top and bottom never conflict
   const launcherStyle = {
-    left: launcherPos.left !== null ? `${launcherPos.left}px` : '28px',
+    left: `${launcherPos.left ?? 28}px`,
     top: launcherPos.top !== null ? `${launcherPos.top}px` : 'auto',
-    bottom: launcherPos.bottom !== null ? `${launcherPos.bottom}px` : '24px',
+    bottom: launcherPos.top !== null ? 'auto' : `${launcherPos.bottom ?? 24}px`,
     right: 'auto',
   };
 
@@ -287,9 +300,15 @@ export default function GlobalCopilot() {
         onPointerUp={onLauncherPointerUp}
         onPointerCancel={onLauncherPointerUp}
         onClick={onLauncherClick}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          const def = { left: 28, bottom: 24, top: null, right: null };
+          setLauncherPos(def);
+          try { localStorage.setItem('auditai_mascot_launcher_pos', JSON.stringify(def)); } catch {}
+        }}
         type="button"
         aria-label="Open AuditAI Copilot"
-        title="AuditAI mascot · Draggable · Click to chat"
+        title="AuditAI mascot · Draggable · Click to chat (Double-click to reset)"
       >
         <div className="mascot-avatar-container">
           <img
@@ -297,6 +316,11 @@ export default function GlobalCopilot() {
             alt="AuditAI Mascot"
             className="mascot-pixel-img"
             draggable={false}
+            onError={(e) => {
+              if (e.currentTarget.src.indexOf('auditai-logo.png') === -1) {
+                e.currentTarget.src = '/auditai-logo.png';
+              }
+            }}
           />
           {/* Animated Steam rising from coffee cup */}
           <div className="mascot-coffee-steam" aria-hidden="true">

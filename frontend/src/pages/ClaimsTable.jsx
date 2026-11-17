@@ -107,12 +107,29 @@ export default function ClaimsTable() {
       key: 'claim_id',
       label: 'Claim ID',
       sortable: true,
+      style: { whiteSpace: 'nowrap', minWidth: '220px' },
       render: (val) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-accent-primary">{val}</span>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+          <span className="font-medium text-accent-primary" style={{ whiteSpace: 'nowrap', fontFamily: 'monospace', letterSpacing: '0.02em' }}>
+            {val}
+          </span>
           {String(val || '').startsWith('INV-') && (
-            <span className="badge badge-blue text-xs" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
-              Procurement ML
+            <span
+              className="badge badge-blue"
+              style={{
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                padding: '2px 8px',
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                lineHeight: 1.2,
+                borderRadius: '999px',
+                flexShrink: 0
+              }}
+            >
+              PROCUREMENT ML
             </span>
           )}
         </div>

@@ -2,7 +2,7 @@
   max-width: 1440px;
   margin: 0 auto;
   padding: 24px 32px 60px;
-  color: #fafaf9;
+  color: #0f172a;
 }
 
 .ir-loading-box, .ir-error-box {
@@ -17,7 +17,7 @@
 
 .ir-error-box h3 {
   font-size: 1.25rem;
-  color: #f87171;
+  color: #dc2626;
 }
 
 .spin {
@@ -31,11 +31,12 @@
 
 /* Header */
 .ir-header {
-  background: linear-gradient(135deg, rgba(34, 28, 25, 0.95) 0%, rgba(22, 19, 17, 0.95) 100%);
-  border: 1px solid rgba(239, 153, 118, 0.28);
-  border-radius: 14px;
-  padding: 20px 24px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 24px 28px;
   margin-bottom: 24px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 
 .ir-header-nav {
@@ -46,26 +47,27 @@
   gap: 12px;
   margin-bottom: 16px;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .ir-back-btn {
   background: none;
   border: none;
-  color: #ef9976;
+  color: #ea580c;
   font-size: 0.85rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
 }
 
 .ir-back-btn:hover {
-  background: rgba(239, 153, 118, 0.12);
+  background: #fff7ed;
+  color: #c2410c;
 }
 
 .ir-header-badge-group {
@@ -77,9 +79,9 @@
 
 .ir-pill-ref {
   padding: 4px 10px;
-  background: rgba(239, 153, 118, 0.18);
-  color: #ef9976;
-  border: 1px solid rgba(239, 153, 118, 0.4);
+  background: #fff7ed;
+  color: #ea580c;
+  border: 1px solid #fed7aa;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 700;
@@ -88,9 +90,9 @@
 
 .ir-pill-inv {
   padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.07);
-  color: #e7e5e4;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -103,13 +105,16 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
 }
 
 .ir-status-badge.status-approved,
 .ir-status-badge.status-completed {
-  background: rgba(16, 185, 129, 0.2);
-  color: #4ade80;
-  border: 1px solid rgba(16, 185, 129, 0.45);
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
 }
 
 .ir-header-main {
@@ -122,15 +127,15 @@
 
 .ir-title {
   font-size: 1.35rem;
-  font-weight: 700;
-  color: #fafaf9;
+  font-weight: 800;
+  color: #0f172a;
   margin: 0 0 6px 0;
   line-height: 1.3;
 }
 
 .ir-sub {
   font-size: 0.85rem;
-  color: #a8a29e;
+  color: #64748b;
   margin: 0;
 }
 
@@ -149,15 +154,16 @@
 
 .ir-total-label {
   font-size: 0.72rem;
-  color: #a8a29e;
+  color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-weight: 600;
 }
 
 .ir-total-amount {
   font-size: 1.5rem;
   font-weight: 800;
-  color: #4ade80;
+  color: #059669;
 }
 
 .ir-header-actions {
@@ -169,11 +175,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 8px 14px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  color: #e7e5e4;
+  color: #334155;
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
@@ -181,8 +187,8 @@
 }
 
 .ir-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: #f8fafc;
+  border-color: #94a3b8;
 }
 
 .ir-action-notice {
@@ -190,10 +196,10 @@
   align-items: center;
   gap: 10px;
   padding: 12px 18px;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
   border-radius: 10px;
-  color: #6ee7b7;
+  color: #065f46;
   font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 24px;
@@ -201,11 +207,12 @@
 
 /* Panels */
 .ir-panel {
-  background: #181513;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
   padding: 24px 28px;
   margin-bottom: 24px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 
 .ir-section-head {
@@ -216,14 +223,14 @@
   gap: 16px;
   margin-bottom: 20px;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .ir-eyebrow {
   display: block;
   font-size: 0.7rem;
   font-weight: 800;
-  color: #ef9976;
+  color: #ea580c;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 4px;
@@ -232,20 +239,20 @@
 .ir-section-head h2 {
   font-size: 1.15rem;
   font-weight: 700;
-  color: #fafaf9;
+  color: #0f172a;
   margin: 0 0 6px 0;
 }
 
 .ir-gate-counter {
   font-size: 0.95rem;
-  color: #ef9976;
+  color: #ea580c;
   margin-left: 8px;
   font-weight: 700;
 }
 
 .ir-section-desc {
   font-size: 0.82rem;
-  color: #a8a29e;
+  color: #64748b;
   margin: 0;
   max-width: 800px;
   line-height: 1.5;
@@ -260,8 +267,8 @@
 }
 
 .ir-auth-card {
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -269,13 +276,13 @@
 }
 
 .ir-auth-card.pending {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
 }
 
 .ir-auth-card.approved {
-  background: rgba(16, 185, 129, 0.06);
-  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: #f0fdf4;
+  border: 1px solid #86efac;
 }
 
 .ir-auth-card-head {
@@ -288,8 +295,8 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: rgba(239, 153, 118, 0.18);
-  color: #ef9976;
+  background: #fff7ed;
+  color: #ea580c;
   font-size: 0.75rem;
   font-weight: 700;
   display: flex;
@@ -301,13 +308,13 @@
 .ir-auth-name {
   font-size: 0.88rem;
   font-weight: 700;
-  color: #fafaf9;
+  color: #0f172a;
   margin: 0;
 }
 
 .ir-auth-group {
   font-size: 0.72rem;
-  color: #ef9976;
+  color: #ea580c;
   font-weight: 600;
 }
 
@@ -320,15 +327,15 @@
 }
 
 .ir-auth-badge.approved {
-  background: rgba(16, 185, 129, 0.2);
-  color: #4ade80;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
 }
 
 .ir-auth-badge.pending {
-  background: rgba(255, 255, 255, 0.06);
-  color: #a8a29e;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
 }
 
 .ir-auth-card-body {
@@ -345,28 +352,29 @@
 }
 
 .ir-auth-row.approved-meta {
-  color: #4ade80;
+  color: #15803d;
 }
 
 .ir-k {
-  color: #a8a29e;
+  color: #64748b;
   flex-shrink: 0;
 }
 
 .ir-v {
-  color: #e7e5e4;
+  color: #0f172a;
+  font-weight: 500;
 }
 
 .ir-auth-card-foot {
   margin-top: auto;
   padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid #e2e8f0;
 }
 
 .ir-auth-done-text {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #4ade80;
+  color: #15803d;
 }
 
 .ir-auth-btn {
@@ -389,23 +397,23 @@
 }
 
 .ir-gate-box {
-  padding: 16px 20px;
+  padding: 18px 20px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
 .ir-gate-box.completed {
-  border-color: rgba(16, 185, 129, 0.35);
-  background: rgba(16, 185, 129, 0.05);
+  border-color: #86efac;
+  background: #f0fdf4;
 }
 
 .ir-gate-box.ready {
-  border-color: rgba(239, 153, 118, 0.35);
-  background: rgba(239, 153, 118, 0.05);
+  border-color: #fed7aa;
+  background: #fff7ed;
 }
 
 .ir-gate-box-head {
@@ -425,41 +433,42 @@
 .ir-gate-icon-title h4 {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #fafaf9;
+  color: #0f172a;
   margin: 0;
 }
 
 .ir-gate-icon-title small {
   font-size: 0.74rem;
-  color: #a8a29e;
+  color: #64748b;
   display: block;
 }
 
 .ir-badge-locked {
   font-size: 0.75rem;
-  color: #a8a29e;
+  color: #64748b;
   padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: #f1f5f9;
   border-radius: 6px;
+  border: 1px solid #e2e8f0;
 }
 
 .ir-badge-success {
   font-size: 0.75rem;
-  color: #4ade80;
+  color: #15803d;
   font-weight: 700;
   padding: 4px 10px;
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: #dcfce7;
+  border: 1px solid #86efac;
   border-radius: 6px;
 }
 
 .ir-badge-danger {
   font-size: 0.75rem;
-  color: #f87171;
+  color: #dc2626;
   font-weight: 700;
   padding: 4px 10px;
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
   border-radius: 6px;
 }
 
@@ -468,7 +477,7 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid #e2e8f0;
 }
 
 .ir-ml-stat {
@@ -478,28 +487,29 @@
 
 .ir-ml-stat span {
   font-size: 0.7rem;
-  color: #a8a29e;
+  color: #64748b;
   text-transform: uppercase;
 }
 
 .ir-ml-stat strong {
   font-size: 1.05rem;
-  color: #ef9976;
+  color: #ea580c;
 }
 
 .ir-ml-stat small {
   font-size: 0.68rem;
-  color: #78716c;
+  color: #94a3b8;
 }
 
 .ir-ml-verdict {
   grid-column: span 3;
   margin-top: 4px;
   padding: 6px 10px;
-  background: rgba(16, 185, 129, 0.1);
+  background: #dcfce7;
   border-left: 3px solid #10b981;
   border-radius: 4px;
   font-size: 0.76rem;
+  color: #15803d;
 }
 
 .ir-payment-receipt {
@@ -507,9 +517,9 @@
   flex-direction: column;
   gap: 3px;
   font-size: 0.75rem;
-  color: #d6d3d1;
+  color: #15803d;
   padding: 8px 12px;
-  background: rgba(16, 185, 129, 0.08);
+  background: #dcfce7;
   border-radius: 6px;
   border-left: 3px solid #10b981;
 }
@@ -526,10 +536,10 @@
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
-  color: #a8a29e;
+  color: #64748b;
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
@@ -537,14 +547,14 @@
 }
 
 .ir-tab-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: #fafaf9;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 .ir-tab-btn.active {
-  background: rgba(239, 153, 118, 0.16);
-  border-color: rgba(239, 153, 118, 0.4);
-  color: #ef9976;
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #ea580c;
   font-weight: 700;
 }
 
@@ -561,18 +571,20 @@
 }
 
 .ir-vendor-item-card {
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 18px 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  transition: border-color 0.15s ease;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ir-vendor-item-card:hover {
-  border-color: rgba(239, 153, 118, 0.35);
+  border-color: #ff5722;
+  box-shadow: 0 4px 16px rgba(255, 87, 34, 0.08);
 }
 
 .ir-vendor-card-header {
@@ -581,7 +593,7 @@
   align-items: flex-start;
   gap: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .ir-vendor-title-wrap {
@@ -593,8 +605,8 @@
 .ir-item-sku-tag {
   padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(239, 153, 118, 0.18);
-  color: #ef9976;
+  background: #fff7ed;
+  color: #ea580c;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -603,14 +615,14 @@
 .ir-vendor-card-header h3 {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #fafaf9;
+  color: #0f172a;
   margin: 0;
 }
 
 .ir-item-cost-badge {
   font-size: 0.95rem;
   font-weight: 800;
-  color: #4ade80;
+  color: #059669;
   white-space: nowrap;
 }
 
@@ -628,26 +640,28 @@
 
 .ir-detail-k {
   font-size: 0.7rem;
-  color: #a8a29e;
+  color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-weight: 600;
 }
 
 .ir-detail-v {
-  font-size: 0.8rem;
-  color: #fafaf9;
+  font-size: 0.82rem;
+  color: #0f172a;
   line-height: 1.35;
+  font-weight: 500;
 }
 
 .ir-detail-sub {
   font-size: 0.69rem;
-  color: #78716c;
+  color: #94a3b8;
 }
 
 .ir-vendor-card-footer {
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid #f1f5f9;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -659,13 +673,13 @@
   display: flex;
   gap: 14px;
   font-size: 0.74rem;
-  color: #a8a29e;
+  color: #64748b;
 }
 
 .ir-view-map-link {
   background: none;
   border: none;
-  color: #ef9976;
+  color: #ea580c;
   font-size: 0.75rem;
   font-weight: 700;
   display: inline-flex;
@@ -678,5 +692,6 @@
 }
 
 .ir-view-map-link:hover {
-  background: rgba(239, 153, 118, 0.12);
+  background: #fff7ed;
+  color: #c2410c;
 }

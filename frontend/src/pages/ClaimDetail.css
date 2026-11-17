@@ -1,52 +1,56 @@
-/* Claim Detail Modern Redesign */
+/* Claim Detail Modern SaaS Light Redesign */
 .claim-header-card {
-  padding: 20px 24px;
-  background: rgba(13, 19, 33, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .claim-amount-highlight {
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.2;
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 .claim-meta-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-glass);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1.5px solid #f1f5f9;
 }
 
 .claim-meta-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .claim-meta-label {
   font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  font-weight: 700;
 }
 
 .claim-meta-value {
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.3;
 }
 
 /* 2-Column Overview */
 .claim-overview-grid {
   display: grid;
   grid-template-columns: 1.15fr 0.85fr;
-  gap: 20px;
+  gap: 24px;
+  margin-bottom: 24px;
 }
 
 @media (max-width: 950px) {
@@ -67,81 +71,85 @@
 
 .risk-verdict-banner {
   width: 100%;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  margin-top: 14px;
-  font-size: 0.82rem;
-  line-height: 1.45;
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin-top: 16px;
+  font-size: 0.88rem;
+  line-height: 1.5;
   text-align: left;
+  font-weight: 500;
 }
 
 .risk-verdict-low {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  color: #166534;
 }
 
 .risk-verdict-moderate {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  color: #fbbf24;
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  color: #92400e;
 }
 
 .risk-verdict-high {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  background: #fef2f2;
+  border: 1.5px solid #fecaca;
+  color: #991b1b;
 }
 
 /* Diagnostics Accordion */
 .risk-diagnostics-dropdown {
   width: 100%;
-  margin-top: 14px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-glass);
+  margin-top: 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
   text-align: left;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
+  overflow: hidden;
 }
 
 .risk-diagnostics-dropdown summary {
-  padding: 9px 12px;
+  padding: 12px 16px;
   cursor: pointer;
-  color: var(--text-secondary);
-  font-weight: 500;
+  color: #334155;
+  font-weight: 600;
   user-select: none;
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .risk-diagnostics-dropdown summary:hover {
-  color: var(--text-primary);
+  color: #0f172a;
+  background-color: #f1f5f9;
 }
 
 .risk-diagnostics-content {
-  padding: 12px;
-  border-top: 1px solid var(--border-glass);
+  padding: 16px;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
 }
 
 .diagnostics-metric-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .diagnostics-metric-box {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
 }
 
 /* Tabs */
 .claim-section-tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-glass);
+  gap: 10px;
+  margin-bottom: 24px;
+  border-bottom: 1.5px solid #e2e8f0;
   padding-bottom: 12px;
   flex-wrap: wrap;
 }
@@ -150,24 +158,78 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
-  border-radius: var(--radius-md);
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-secondary);
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #64748b;
   background: transparent;
-  border: 1px solid transparent;
+  border: 1.5px solid transparent;
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .claim-tab-btn:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.04);
+  color: #0f172a;
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 
 .claim-tab-btn.active {
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border-color: var(--border-glass);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Master Screening Specific Layout */
+.master-screening-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  margin-bottom: 24px;
+}
+
+.master-pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.master-pillar-box {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.master-data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.88rem;
+}
+
+.master-data-row:last-child {
+  border-bottom: none;
+}
+
+.master-data-label {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.master-data-value {
+  color: #0f172a;
+  font-weight: 600;
+  text-align: right;
+  max-width: 60%;
+  word-break: break-word;
 }

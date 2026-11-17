@@ -203,31 +203,38 @@ export default function ReviewQueue() {
           )}
         </div>
 
-        <div className="transfer-controls mb-6">
-          <button
-            className="btn btn-secondary text-xs"
-            disabled={!offset || busy}
-            onClick={() =>
-              setParams(p => {
-                p.set('offset', String(Math.max(0, offset - 50)));
-                return p;
-              })
-            }
-          >
-            Previous
-          </button>
-          <button
-            className="btn btn-secondary text-xs"
-            disabled={offset + 50 >= data.total || busy}
-            onClick={() =>
-              setParams(p => {
-                p.set('offset', String(offset + 50));
-                return p;
-              })
-            }
-          >
-            Next
-          </button>
+        <div className="flex items-center justify-between py-3 mb-6">
+          <span className="text-xs text-secondary">
+            Page {Math.floor(offset / 50) + 1} of {Math.max(1, Math.ceil(data.total / 50))}
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              className="btn btn-secondary text-xs"
+              style={{ padding: '8px 16px', borderRadius: '8px' }}
+              disabled={!offset || busy}
+              onClick={() =>
+                setParams(p => {
+                  p.set('offset', String(Math.max(0, offset - 50)));
+                  return p;
+                })
+              }
+            >
+              Previous
+            </button>
+            <button
+              className="btn btn-secondary text-xs"
+              style={{ padding: '8px 16px', borderRadius: '8px' }}
+              disabled={offset + 50 >= data.total || busy}
+              onClick={() =>
+                setParams(p => {
+                  p.set('offset', String(offset + 50));
+                  return p;
+                })
+              }
+            >
+              Next
+            </button>
+          </div>
         </div>
       </>
     )}

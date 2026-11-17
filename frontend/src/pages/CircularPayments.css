@@ -3,10 +3,11 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 1.25rem;
-  padding: 20px 24px;
-  background: #1c1815 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  padding: 18px 24px;
+  background: #ffffff !important;
+  border: 1.5px solid #e2e8f0 !important;
   border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .transfer-controls label {
@@ -15,29 +16,29 @@
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #f5f5f4;
+  color: #475569;
 }
 
 .transfer-controls select,
 .transfer-controls input {
   height: 42px;
   padding: 0 14px;
-  border: 1px solid #443a33;
+  border: 1.5px solid #cbd5e1;
   border-radius: 9px;
-  background: #25201c !important;
-  color: #f5f5f4 !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
   font-size: 13.5px;
   min-width: 170px;
   outline: none;
-  color-scheme: dark;
+  color-scheme: light;
   transition: all 0.15s ease;
 }
 
 .transfer-controls select:focus,
 .transfer-controls input:focus {
-  border-color: #ef9976;
-  background: #2c241f !important;
-  box-shadow: 0 0 0 3px rgba(239, 153, 118, 0.22);
+  border-color: #ea580c;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15);
 }
 
 .transfer-controls .btn {
@@ -48,11 +49,47 @@
   border-radius: 9px;
 }
 
-.transfer-path { display: flex; flex-wrap: wrap; padding: 0; list-style: none; gap: .5rem; margin: 1rem 0; font-weight: 600; overflow-wrap: anywhere; }
-.circular-payments h1, .circular-payments h2 { line-height: 1.4; }
-.circular-payments .table-container { overflow-x: auto; }
-.circular-payments p { line-height: 1.6; }
-.transfer-review-form { display: grid; gap: 1rem; margin: 1rem 0; }
-.transfer-review-form label { display: grid; gap: .5rem; }
-.transfer-review-form textarea, .transfer-review-form select { background: #25201c; color: inherit; border: 1px solid #443a33; border-radius: 8px; padding: .75rem; color-scheme: dark; }
-.transfer-review-form textarea { min-height: 90px; }
+.transfer-path {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0;
+  list-style: none;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.circular-payments h1,
+.circular-payments h2 {
+  line-height: 1.4;
+  color: #0f172a;
+}
+.circular-payments .table-container {
+  overflow-x: auto;
+}
+.circular-payments p {
+  line-height: 1.6;
+  color: #64748b;
+}
+.transfer-review-form {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.transfer-review-form label {
+  display: grid;
+  gap: 0.5rem;
+  color: #475569;
+}
+.transfer-review-form textarea,
+.transfer-review-form select {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.75rem;
+  color-scheme: light;
+}
+.transfer-review-form textarea {
+  min-height: 90px;
+}

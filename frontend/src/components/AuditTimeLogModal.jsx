@@ -215,6 +215,27 @@ const CATEGORIES = [
   { id: 'payment', label: 'Settlement & PayPal' }
 ];
 
+function formatLogRelativeTime(timestamp) {
+  if (!timestamp) return 'Just now';
+  try {
+    const d = new Date(String(timestamp).endsWith('Z') ? timestamp : `${timestamp}Z`);
+    const diffMs = Date.now() - d.getTime();
+    if (diffMs < 0 || isNaN(diffMs)) return 'Just now';
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return '1 day ago';
+    if (days < 7) return `${days} days ago`;
+    const weeks = Math.floor(days / 7);
+    return `${weeks}w ago`;
+  } catch {
+    return 'Recently';
+  }
+}
+
 export default function AuditTimeLogModal({
   requestId,
   requestKind = 'sourcing',
@@ -227,6 +248,8 @@ export default function AuditTimeLogModal({
   const [error, setError] = useState(null);
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('newest');
+  const [expandedCardId, setExpandedCardId] = useState(null);
   const [copied, setCopied] = useState(false);
 
   const fetchLogs = async () => {
@@ -306,6 +329,12 @@ export default function AuditTimeLogModal({
     return true;
   });
 
+  const sortedLogs = [...filteredLogs].sort((a, b) => {
+    const timeA = new Date(a.timestamp || a.log_time || 0).getTime();
+    const timeB = new Date(b.timestamp || b.log_time || 0).getTime();
+    return sortOrder === 'newest' ? timeB - timeA : timeA - timeB;
+  });
+
   const quoteId = `${requestKind.toUpperCase()}-${String(requestId).padStart(4, '0')}`;
   const firstLog = logs[0];
   const createdDate = firstLog?.timestamp || firstLog?.log_time;
@@ -320,13 +349,13 @@ export default function AuditTimeLogModal({
 
   const getStageMeta = (action, category, details) => {
     const act = (action || '').toLowerCase();
-    if (act.includes('created') || act.includes('intake')) return { title: 'Shipper', sub: details?.actor || 'Requester' };
-    if (act.includes('outreach') || act.includes('rfq') || act.includes('agent_started')) return { title: 'Outreach', sub: 'SMTP Dispatch' };
-    if (act.includes('reply') || act.includes('quoted') || act.includes('quotation')) return { title: 'Quotation', sub: 'Vendor Reply' };
-    if (act.includes('counter') || act.includes('negotiat') || act.includes('discount')) return { title: 'Negotiation', sub: 'Counteroffer' };
-    if (act.includes('winner') || act.includes('po_') || act.includes('award')) return { title: 'PO Award', sub: 'Decision Finalized' };
-    if (act.includes('invoice') || act.includes('ocr') || act.includes('ml')) return { title: 'Verification', sub: 'ML Evaluation' };
-    if (act.includes('payment') || act.includes('paypal') || act.includes('settle')) return { title: 'Settlement', sub: 'PayPal Sandbox' };
+    if (act.includes('created') || act.includes('intake')) return { title: 'Intake Requisition', sub: details?.actor || 'Requester' };
+    if (act.includes('outreach') || act.includes('rfq') || act.includes('agent_started')) return { title: 'Commercial Outreach', sub: 'SMTP Dispatch' };
+    if (act.includes('reply') || act.includes('quoted') || act.includes('quotation')) return { title: 'Quotation Received', sub: 'Vendor Reply' };
+    if (act.includes('counter') || act.includes('negotiat') || act.includes('discount')) return { title: 'Commercial Negotiation', sub: 'Counteroffer' };
+    if (act.includes('winner') || act.includes('po_') || act.includes('award')) return { title: 'PO Award & Commit', sub: 'Decision Finalized' };
+    if (act.includes('invoice') || act.includes('ocr') || act.includes('ml')) return { title: 'Fraud Verification', sub: 'ML Evaluation' };
+    if (act.includes('payment') || act.includes('paypal') || act.includes('settle')) return { title: 'B2B Settlement', sub: 'PayPal Sandbox' };
     return { title: category ? category.charAt(0).toUpperCase() + category.slice(1) : 'Milestone', sub: 'Audit Event' };
   };
 
@@ -456,165 +485,161 @@ export default function AuditTimeLogModal({
 
           {loading && logs.length === 0 ? (
             <div className="atl-loading-state">
-              <RefreshCw size={24} className="atl-spinning" color="#ef9976" />
+              <RefreshCw size={24} className="atl-spinning" color="#8b5cf6" />
               <p>Loading chronological audit events from immutable ledger…</p>
             </div>
-          ) : filteredLogs.length === 0 ? (
+          ) : sortedLogs.length === 0 ? (
             <div className="atl-empty-state">
-              <Clock size={32} color="#6b7280" />
+              <Clock size={32} color="#94a3b8" />
               <h4>No Audit Events Match Filter</h4>
               <p>{searchQuery ? `No logs found matching "${searchQuery}". Clear your search query to see all records.` : 'No events recorded in this category yet.'}</p>
             </div>
           ) : (
-            <div className="atl-timeline">
-              {filteredLogs.map((log, index) => {
+            <div className="atl-board-list">
+              <div className="atl-subbar">
+                <span className="atl-count-found">
+                  We've found <strong>{sortedLogs.length}</strong> audit milestones
+                </span>
+                <button
+                  type="button"
+                  className="atl-sort-btn"
+                  onClick={() => setSortOrder(o => o === 'newest' ? 'oldest' : 'newest')}
+                >
+                  Sort by: <strong>{sortOrder === 'newest' ? 'Date (Newest)' : 'Date (Oldest)'}</strong> ▾
+                </button>
+              </div>
+
+              {sortedLogs.map((log, index) => {
                 const cfg = ACTION_CONFIG[log.action] || {
                   label: log.action.replaceAll('_', ' '),
                   icon: Clock,
-                  color: '#ef9976',
-                  bg: 'rgba(239, 153, 118, 0.12)',
+                  color: '#8b5cf6',
+                  bg: '#f5f3ff',
                   category: 'lifecycle'
                 };
                 const Icon = cfg.icon;
                 const details = log.details || {};
                 const actorName = log.actor || details.actor || (log.actor_id === 1 ? 'Autonomous AI Agent' : `User #${log.actor_id}`);
                 const formattedTime = log.log_time || (log.timestamp ? new Date(log.timestamp).toUTCString() : '—');
-                
-                // Relative time helper
-                const dateObj = new Date(log.timestamp || log.log_time);
-                const isDateValid = !isNaN(dateObj.getTime());
-                const relativeTime = isDateValid
-                  ? Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 60000))
-                  : null;
-
+                const relativeTimeStr = formatLogRelativeTime(log.timestamp || log.log_time);
                 const stageMeta = getStageMeta(log.action, cfg.category, details);
 
+                const cardId = log.id || `${log.action}-${index}`;
+                const isExpanded = expandedCardId === cardId;
+
+                let displayMetric = stageMeta.title;
+                if (details.total_price || details.stated_total || details.amount) {
+                  const amt = Number(details.total_price || details.stated_total || details.amount);
+                  displayMetric = new Intl.NumberFormat('en-IN', { style: 'currency', currency: details.currency || 'INR', maximumFractionDigits: 0 }).format(amt);
+                } else if (details.po_number) {
+                  displayMetric = `PO #${details.po_number}`;
+                } else if (details.invoice_number) {
+                  displayMetric = `INV #${details.invoice_number}`;
+                } else if (details.score != null) {
+                  displayMetric = `${(details.score * 100).toFixed(0)}% Score`;
+                }
+
                 return (
-                  <div key={log.id || index} className="atl-event-row">
-                    <div className="atl-stage-col">
-                      <div className="atl-stage-title">{stageMeta.title}</div>
-                      <div className="atl-stage-sub">{stageMeta.sub}</div>
-                    </div>
-
-                    <div className="atl-timeline-connector">
-                      <div
-                        className={`atl-event-icon-circle ${index === 0 ? 'atl-node-first' : ''}`}
-                        style={{ background: cfg.bg, color: cfg.color, borderColor: cfg.color }}
-                      >
-                        <Icon size={14} />
-                      </div>
-                      {index < filteredLogs.length - 1 && <div className="atl-timeline-line" />}
-                    </div>
-
-                    <div className="atl-event-card">
-                      <div className="atl-card-head">
-                        <div className="atl-card-title-block">
-                          <span
-                            className="atl-action-badge"
-                            style={{ background: cfg.bg, color: cfg.color }}
-                          >
-                            {cfg.label}
-                          </span>
-                          <span className="atl-raw-action">{log.action}</span>
+                  <div
+                    key={cardId}
+                    className={`atl-board-card ${isExpanded ? 'active-highlight' : ''}`}
+                    onClick={() => setExpandedCardId(isExpanded ? null : cardId)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedCardId(isExpanded ? null : cardId); } }}
+                  >
+                    <div className="atl-card-main-row">
+                      <div className="atl-card-left">
+                        <div
+                          className="atl-card-brand-box"
+                          style={{ background: cfg.bg, color: cfg.color }}
+                        >
+                          <Icon size={24} strokeWidth={2.3} />
                         </div>
-                        <div className="atl-time-block">
-                          <span className="atl-exact-time">{formattedTime}</span>
-                          {relativeTime != null && (
-                            <span className="atl-relative-time">
-                              {relativeTime === 0 ? 'just now' : `${relativeTime}m ago`}
-                            </span>
+                        <div className="atl-card-center-col">
+                          <div className="atl-card-title-row">
+                            <h4 className="atl-card-title">{cfg.label}</h4>
+                            <span className="atl-pill-category">{cfg.category}</span>
+                            {details.automatic && <span className="atl-pill-auto">Autonomous AI</span>}
+                            {details.vendor && <span className="atl-pill-vendor">{details.vendor}</span>}
+                          </div>
+                          <div className="atl-card-sub-row">
+                            <span className="atl-actor-txt">{actorName}</span>
+                            <span className="atl-sub-dot">—</span>
+                            <span className="atl-stage-txt">{stageMeta.title}</span>
+                            {details.po_number && (
+                              <>
+                                <span className="atl-sub-dot">•</span>
+                                <span className="atl-po-txt">PO #{details.po_number}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="atl-card-right">
+                        <div className="atl-card-metric">
+                          {displayMetric}
+                        </div>
+                        <div className="atl-card-timeago">
+                          {relativeTimeStr}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="atl-card-drawer" onClick={e => e.stopPropagation()}>
+                        <div className="atl-drawer-grid">
+                          <div className="atl-drawer-cell">
+                            <small>Exact UTC Timestamp</small>
+                            <strong>{formattedTime}</strong>
+                          </div>
+                          <div className="atl-drawer-cell">
+                            <small>Action Code</small>
+                            <code>{log.action}</code>
+                          </div>
+                          {details.vendor && (
+                            <div className="atl-drawer-cell">
+                              <small>Supplier</small>
+                              <strong>{details.vendor}</strong>
+                            </div>
+                          )}
+                          {details.email && (
+                            <div className="atl-drawer-cell">
+                              <small>Email Dispatch</small>
+                              <strong>{details.email}</strong>
+                            </div>
+                          )}
+                          {(details.total_price || details.stated_total || details.amount) && (
+                            <div className="atl-drawer-cell">
+                              <small>Recorded Total</small>
+                              <strong style={{ color: '#ff5722' }}>
+                                {details.currency || 'INR'} {Number(details.total_price || details.stated_total || details.amount).toLocaleString()}
+                              </strong>
+                            </div>
+                          )}
+                          {details.score != null && (
+                            <div className="atl-drawer-cell">
+                              <small>ML Anomaly Score</small>
+                              <strong style={{ color: details.is_fraud ? '#f87171' : '#10b981' }}>
+                                {(details.score * 100).toFixed(1)}% ({details.fraud_decision || (details.is_fraud ? 'FLAGGED' : 'CLEAN')})
+                              </strong>
+                            </div>
                           )}
                         </div>
+
+                        {(details.note || details.reasoning || details.recommendation || details.error) && (
+                          <p className={`atl-note ${details.error ? 'is-error' : ''}`}>
+                            {details.error ? `Error: ${details.error}` : (details.note || details.reasoning || details.recommendation)}
+                          </p>
+                        )}
+
+                        <details className="atl-raw-details">
+                          <summary>View Cryptographic Payload</summary>
+                          <pre>{JSON.stringify(details, null, 2)}</pre>
+                        </details>
                       </div>
-
-                      {/* Actor Information */}
-                      <div className="atl-actor-line">
-                        <span className="atl-actor-label">Initiated by:</span>
-                        <strong className="atl-actor-value">{actorName}</strong>
-                        {details.automatic && <span className="atl-auto-chip">Autonomous</span>}
-                      </div>
-
-                      {/* Context-Specific Highlights */}
-                      <div className="atl-details-grid">
-                        {details.vendor && (
-                          <div className="atl-detail-pill">
-                            <small>Supplier</small>
-                            <strong>{details.vendor}</strong>
-                          </div>
-                        )}
-                        {details.email && (
-                          <div className="atl-detail-pill">
-                            <small>Recipient</small>
-                            <span>{details.email}</span>
-                          </div>
-                        )}
-                        {(details.total_price || details.stated_total || details.amount) && (
-                          <div className="atl-detail-pill">
-                            <small>Amount</small>
-                            <strong style={{ color: '#ef9976' }}>
-                              {details.currency || 'INR'} {Number(details.total_price || details.stated_total || details.amount).toLocaleString()}
-                            </strong>
-                          </div>
-                        )}
-                        {details.po_number && (
-                          <div className="atl-detail-pill">
-                            <small>PO Number</small>
-                            <strong style={{ color: '#4ade80' }}>{details.po_number}</strong>
-                          </div>
-                        )}
-                        {details.invoice_number && (
-                          <div className="atl-detail-pill">
-                            <small>Invoice Ref</small>
-                            <strong>{details.invoice_number}</strong>
-                          </div>
-                        )}
-                        {details.score != null && (
-                          <div className="atl-detail-pill">
-                            <small>ML Anomaly Score</small>
-                            <strong style={{ color: details.is_fraud ? '#f87171' : '#4ade80' }}>
-                              {(details.score * 100).toFixed(1)}% ({details.fraud_decision || (details.is_fraud ? 'FLAGGED' : 'CLEAN')})
-                            </strong>
-                          </div>
-                        )}
-                        {details.order_id && (
-                          <div className="atl-detail-pill">
-                            <small>PayPal Order ID</small>
-                            <strong style={{ color: '#38bdf8' }}>{details.order_id}</strong>
-                          </div>
-                        )}
-                        {details.lead_time_days && (
-                          <div className="atl-detail-pill">
-                            <small>Lead Time</small>
-                            <span>{details.lead_time_days} days</span>
-                          </div>
-                        )}
-                        {details.warranty && (
-                          <div className="atl-detail-pill">
-                            <small>Warranty</small>
-                            <span>{details.warranty}</span>
-                          </div>
-                        )}
-                        {details.payment_terms && (
-                          <div className="atl-detail-pill">
-                            <small>Terms</small>
-                            <span>{details.payment_terms}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Descriptive Note / Reason */}
-                      {(details.note || details.reasoning || details.recommendation || details.error) && (
-                        <p className={`atl-note ${details.error ? 'is-error' : ''}`}>
-                          {details.error ? `Error: ${details.error}` : (details.note || details.reasoning || details.recommendation)}
-                        </p>
-                      )}
-
-                      {/* Expandable Raw Metadata */}
-                      <details className="atl-raw-details">
-                        <summary>View Raw Cryptographic Audit Payload</summary>
-                        <pre>{JSON.stringify(details, null, 2)}</pre>
-                      </details>
-                    </div>
+                    )}
                   </div>
                 );
               })}

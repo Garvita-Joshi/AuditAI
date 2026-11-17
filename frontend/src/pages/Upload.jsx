@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimsApi, fraudApi, receiptsApi, procurementApi, sourcingApi } from '../api/client';
 import FileUpload from '../components/FileUpload';
-import MasterDataImport from '../components/MasterDataImport';
 import AutomaticCheckResult from '../components/AutomaticCheckResult';
 import { Play, FileText, Search, CheckCircle, Clock, AlertTriangle, Loader, Link2, FilePlus, Database, Bell, CreditCard, ShieldCheck, ArrowRight } from 'lucide-react';
 import { isReviewer, useAuth } from '../auth/AuthContext';
@@ -52,7 +51,7 @@ function AuditTimeline({ events }) {
 }
 
 function InvoiceUploadSection({ onUploaded }) {
-  const [mode, setMode] = useState('attach');
+  const [mode, setMode] = useState('new');
   const [requests, setRequests] = useState([]);
   const [requestsLoaded, setRequestsLoaded] = useState(false);
   const [requestSearch, setRequestSearch] = useState('');
@@ -76,11 +75,18 @@ function InvoiceUploadSection({ onUploaded }) {
   const filtered = requests.filter(r => `${r.label} ${r.supplier}`.toLowerCase().includes(requestSearch.toLowerCase()));
 
   const handleInvoiceUpload = async (file) => {
-    if (mode === 'attach' && !selectedRequest) { setInvError('Select a procurement request to attach this invoice to.'); setInvState('error'); return; }
+    const effectiveMode = (mode === 'attach' && !selectedRequest) ? 'new' : mode;
+    if (mode === 'attach' && !selectedRequest) {
+      setMode('new');
+    }
     setInvState('uploading'); setInvError(''); setInvResult(null);
     setAuthorities([]); setAllApproved(false); setPaymentStatus('pending'); setPaidDetails(null); setApproveMsg('');
     try {
-      const { data } = await procurementApi.uploadInvoice(file, mode === 'attach' ? selectedRequest?.id : null, mode);
+      const { data } = await procurementApi.uploadInvoice(
+        file,
+        effectiveMode === 'attach' ? selectedRequest?.id : null,
+        effectiveMode
+      );
       setInvResult(data);
       setInvState('done');
       setAuthorities(data.required_authorities || []);
@@ -90,6 +96,43 @@ function InvoiceUploadSection({ onUploaded }) {
     } catch (e) {
       const msg = e.response?.data?.detail || e.message || 'Invoice upload failed.';
       setInvError(typeof msg === 'string' ? msg : JSON.stringify(msg)); setInvState('error');
+    }
+  };
+
+  const handleLoadSampleInvoice = async (url, filename) => {
+    try {
+      setInvState('uploading');
+      setInvError('');
+      setInvResult(null);
+      setAuthorities([]);
+      setAllApproved(false);
+      setPaymentStatus('pending');
+      setPaidDetails(null);
+      setApproveMsg('');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Could not fetch ${filename}`);
+      const blob = await res.blob();
+      const mime = filename.endsWith('.pdf') ? 'application/pdf' : 'image/png';
+      const file = new File([blob], filename, { type: blob.type || mime });
+      const effectiveMode = (mode === 'attach' && !selectedRequest) ? 'new' : mode;
+      if (mode === 'attach' && !selectedRequest) {
+        setMode('new');
+      }
+      const { data } = await procurementApi.uploadInvoice(
+        file,
+        effectiveMode === 'attach' ? selectedRequest?.id : null,
+        effectiveMode
+      );
+      setInvResult(data);
+      setInvState('done');
+      setAuthorities(data.required_authorities || []);
+      setAllApproved(false);
+      setPaymentStatus('pending');
+      if (onUploaded) onUploaded(data);
+    } catch (e) {
+      const msg = e.response?.data?.detail || e.message || 'Invoice upload failed.';
+      setInvError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      setInvState('error');
     }
   };
 
@@ -192,6 +235,38 @@ function InvoiceUploadSection({ onUploaded }) {
             Upload a supplier invoice or receipt document — OCR extracts the fields & line items, notifies each respective approval authority in AuditAI, then unlocks Final ML Fraud Check and Payment Settlement.
           </p>
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-secondary text-xs"
+            disabled={invState === 'uploading'}
+            onClick={() => handleLoadSampleInvoice('/sample_procurement_invoice.pdf', 'sample_procurement_invoice.pdf')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', cursor: 'pointer', borderRadius: '8px' }}
+          >
+            <FileText size={13} />
+            <span>Sample Invoice (PDF)</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary text-xs"
+            disabled={invState === 'uploading'}
+            onClick={() => handleLoadSampleInvoice('/makemytrip_invoice_sample.png', 'makemytrip_invoice_sample.png')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', cursor: 'pointer', borderRadius: '8px' }}
+          >
+            <FileText size={13} />
+            <span>MakeMyTrip Sample (PNG)</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary text-xs"
+            disabled={invState === 'uploading'}
+            onClick={() => handleLoadSampleInvoice('/metro_bites_receipt_sample.png', 'metro_bites_receipt_sample.png')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', cursor: 'pointer', borderRadius: '8px' }}
+          >
+            <FileText size={13} />
+            <span>Metro Bites Sample (PNG)</span>
+          </button>
+        </div>
       </div>
 
       {/* Mode selector: Exactly two options */}
@@ -238,18 +313,16 @@ function InvoiceUploadSection({ onUploaded }) {
         </div>
       )}
 
-      {/* New mode info */}
-      {mode === 'new' && (
-        <div className="mb-6" style={{ padding: '14px 18px', background: 'rgba(239,153,118,0.08)', borderRadius: 10, border: '1px solid rgba(239,153,118,0.25)' }}>
-          <p className="text-xs text-secondary"><span className="font-semibold text-primary">Autonomous Direct Invoice Mapping:</span> Creates a new Procurement Request (SR-XXXX) with the Approval Mind Map and pre-lists the extracted company & all line items directly (AI vendor discovery is skipped because the supplier is already on the invoice).</p>
-        </div>
-      )}
+
 
       {/* File upload */}
-      <FileUpload label="Upload invoice PDF / image"
-        accept="image/*,application/pdf,.txt"
-        onUpload={handleInvoiceUpload}
-        uploadState={invState === 'uploading' ? 'uploading' : invState === 'done' ? 'complete' : invState === 'error' ? 'error' : 'idle'} />
+      {!invResult && (
+        <FileUpload label="Upload invoice PDF / image"
+          accept="image/*,application/pdf,.txt"
+          onUpload={handleInvoiceUpload}
+          uploadState={invState === 'uploading' ? 'uploading' : invState === 'done' ? 'complete' : invState === 'error' ? 'error' : 'idle'}
+          onReset={() => { setInvState('idle'); setInvResult(null); }} />
+      )}
 
       {invError && (
         <div className="glass-card mt-4 flex items-center p-4 border-l-4 border-status-danger">
@@ -261,32 +334,59 @@ function InvoiceUploadSection({ onUploaded }) {
       {/* Results */}
       {invResult && (<>
         {/* Request linkage banner */}
-        <div className="glass-card mt-4" style={{ padding: '14px 18px', background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.25)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <CheckCircle size={16} style={{ color: '#10b981' }} />
-              <span className="text-sm font-medium">
+        <div className="glass-card mt-4" style={{ padding: '16px 20px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.22)', borderRadius: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <CheckCircle size={15} style={{ color: '#10b981' }} />
+              </div>
+              <span className="text-sm font-medium text-primary">
                 {mode === 'new' ? 'New procurement request created: ' : 'Existing request updated with invoice & mind map: '}
                 <strong>{invResult.request_ref || `SR-${String(srId).padStart(4, '0')}`} · {invResult.request_title}</strong>
               </span>
-              <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.35)' }}>
+              <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.12)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.28)' }}>
                 {paymentStatus === 'paid' ? 'Paid & Approved' : allApproved ? 'Authorities Approved' : 'Awaiting Respective Authorities'}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className="btn btn-primary text-xs"
+                className="btn"
+                style={{
+                  height: '34px',
+                  background: 'rgba(239,153,118,0.15)',
+                  color: '#ef9976',
+                  border: '1px solid rgba(239,153,118,0.35)',
+                  padding: '0 14px',
+                  borderRadius: '6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  boxShadow: 'none',
+                  cursor: 'pointer'
+                }}
                 onClick={() => navigate(`/procurement/invoice-review/${srId}`)}
               >
-                Open Dedicated Invoice Review &amp; Mind Map →
+                <span>Open Dedicated Invoice Review &amp; Mind Map</span>
+                <ArrowRight size={13} />
               </button>
               <button
                 type="button"
-                className="btn btn-secondary text-xs"
+                className="btn btn-secondary"
+                style={{ height: '34px', padding: '0 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}
                 onClick={() => navigate('/procurement')}
               >
                 All Requests
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ height: '34px', padding: '0 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}
+                onClick={() => { setInvResult(null); setInvState('idle'); }}
+              >
+                Upload Another
               </button>
             </div>
           </div>
@@ -309,94 +409,47 @@ function InvoiceUploadSection({ onUploaded }) {
 
         {/* Stage 1 & 2: OCR Result & Direct Company/Line-Item Mapping card */}
         {(ocr.supplier_id || ocr.total || ocr.invoice_number) && (
-          <div className="glass-card mt-4" style={{ padding: '16px 18px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h4 style={{ fontWeight: 600, fontSize: 13, color: '#ef9976' }}>
+          <div className="glass-card mt-5" style={{ padding: '22px 24px 30px', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h4 style={{ fontWeight: 600, fontSize: 13, color: '#ef9976', margin: 0 }}>
                 Stage 1 & 2 · OCR Extraction & Direct Procurement Mapping (AI Vendor Search Bypassed)
               </h4>
               <span className="badge badge-green text-xs">
                 ✓ High Confidence OCR
               </span>
             </div>
-            <div className="grid-cols-2 gap-3 text-xs mb-3">
-              {ocr.supplier_id && <div><span className="text-secondary">Company / Supplier (Pre-listed):</span><div className="font-semibold text-primary">{ocr.supplier_id}</div></div>}
-              {ocr.invoice_number && <div><span className="text-secondary">Invoice Number:</span><div className="font-semibold text-primary">{ocr.invoice_number}</div></div>}
-              {ocr.total && <div><span className="text-secondary">Total Invoice Amount:</span><div className="font-semibold text-primary">{ocr.currency || 'INR'} {Number(ocr.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div></div>}
-              {ocr.invoice_date && <div><span className="text-secondary">Invoice Date:</span><div className="font-semibold text-primary">{ocr.invoice_date}</div></div>}
-              {ocr.tax && <div><span className="text-secondary">Taxes:</span><div className="font-medium">{ocr.currency || 'INR'} {ocr.tax}</div></div>}
-              {ocr.delivery && <div><span className="text-secondary">Delivery:</span><div className="font-medium">{ocr.currency || 'INR'} {ocr.delivery}</div></div>}
+            <div className="grid-cols-2 gap-4 text-xs mb-4">
+              {ocr.supplier_id && <div><span className="text-secondary">Company / Supplier (Pre-listed):</span><div className="font-semibold text-primary mt-0.5">{ocr.supplier_id}</div></div>}
+              {ocr.invoice_number && <div><span className="text-secondary">Invoice Number:</span><div className="font-semibold text-primary mt-0.5">{ocr.invoice_number}</div></div>}
+              {ocr.total && <div><span className="text-secondary">Total Invoice Amount:</span><div className="font-semibold text-primary mt-0.5">{ocr.currency || 'INR'} {Number(ocr.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div></div>}
+              {ocr.invoice_date && <div><span className="text-secondary">Invoice Date:</span><div className="font-semibold text-primary mt-0.5">{ocr.invoice_date}</div></div>}
+              {ocr.tax && <div><span className="text-secondary">Taxes:</span><div className="font-medium mt-0.5">{ocr.currency || 'INR'} {ocr.tax}</div></div>}
+              {ocr.delivery && <div><span className="text-secondary">Delivery:</span><div className="font-medium mt-0.5">{ocr.currency || 'INR'} {ocr.delivery}</div></div>}
             </div>
 
             {/* Extracted line items list */}
             {ocr.items?.length > 0 && (
-              <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
-                <div className="text-xs text-secondary mb-2 font-semibold">
+              <div style={{ marginTop: 20, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 16, paddingBottom: 16 }}>
+                <div className="text-xs text-secondary mb-3 font-semibold">
                   Extracted Line Items ({ocr.items.length} item{ocr.items.length !== 1 ? 's' : ''} mapped to {invResult.request_ref})
                 </div>
-                {ocr.items.map((item, i) => (
-                  <div key={i} className="text-xs" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 4 }}>
-                    <span className="badge text-[10px]" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976' }}>{item.sku || `#${i + 1}`}</span>
-                    <span className="font-medium text-primary">{item.description || 'Invoice Item'}</span>
-                    <span className="text-secondary">Qty: <strong>{item.quantity || 1}</strong></span>
-                    <span className="text-secondary">Unit: <strong>{ocr.currency || 'INR'} {Number(item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></span>
-                    <span className="font-semibold text-accent-primary" style={{ marginLeft: 'auto' }}>
-                      {ocr.currency || 'INR'} {(Number(item.quantity || 1) * Number(item.unit_price || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {ocr.items.map((item, i) => (
+                    <div key={i} className="text-xs" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span className="badge text-[10px]" style={{ background: 'rgba(239,153,118,0.18)', color: '#ef9976' }}>{item.sku || `#${i + 1}`}</span>
+                      <span className="font-medium text-primary">{item.description || 'Invoice Item'}</span>
+                      <span className="text-secondary">Qty: <strong>{item.quantity || 1}</strong></span>
+                      <span className="text-secondary">Unit: <strong>{ocr.currency || 'INR'} {Number(item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></span>
+                      <span className="font-semibold text-accent-primary" style={{ marginLeft: 'auto' }}>
+                        {ocr.currency || 'INR'} {(Number(item.quantity || 1) * Number(item.unit_price || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
         )}
-
-        {/* ── Sourcing Request Created & Dedicated Review Navigation ── */}
-        <div className="glass-card mt-4 p-5 border border-border-light" style={{ background: 'linear-gradient(135deg, rgba(34,28,25,0.96) 0%, rgba(22,19,17,0.96) 100%)', borderColor: 'rgba(239,153,118,0.38)', borderRadius: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-              <CheckCircle size={22} style={{ color: '#10b981' }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-                <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fafaf9' }}>
-                  {mode === 'new' ? 'Sourcing Request Created Successfully' : 'Request Updated with Invoice'}
-                </h4>
-                <span className="badge" style={{ background: 'rgba(239,153,118,0.2)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.45)', fontWeight: 800, fontSize: 12 }}>
-                  {invResult.request_ref || `SR-${String(srId).padStart(4, '0')}`}
-                </span>
-              </div>
-              <p style={{ margin: '0 0 16px 0', fontSize: 13, color: '#d6d3d1', lineHeight: 1.55 }}>
-                The request for this invoice has been created: <strong>{invResult.request_ref || `SR-${String(srId).padStart(4, '0')}`} · {invResult.request_title}</strong>.
-                Approval notifications were dispatched to each respective authority (Procurement Team, Requesting Department, Legal, Finance, Accounts Payable, IT) in the AuditAI window.
-                Open the dedicated review page to inspect itemized mind maps, review authority sign-offs, run the final ML check, and settle payment.
-              </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ background: '#ef9976', color: '#14100c', fontWeight: 800, border: 'none', padding: '10px 20px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                  onClick={() => navigate(`/procurement/invoice-review/${srId}`)}
-                >
-                  <span>Open Dedicated Invoice Review &amp; Mind Map</span>
-                  <ArrowRight size={15} />
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary text-xs"
-                  onClick={() => navigate(`/claims/INV-SR-${String(srId).padStart(4, '0')}`)}
-                >
-                  View in Claims Ledger →
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary text-xs"
-                  onClick={() => { setInvResult(null); setInvState('idle'); setFile(null); }}
-                >
-                  Upload Another Invoice
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       </>)}
     </div>
   );
@@ -410,13 +463,22 @@ export default function Upload() {
   const [message, setMessage] = useState(null);
   const [scoring, setScoring] = useState(false);
   const [automaticChecks, setAutomaticChecks] = useState(null);
-  const [showMaster, setShowMaster] = useState(false);
 
   const navigate = useNavigate();
   const { user } = useAuth();
   const { profile, companyName, currency } = useAuditProfile();
 
   const handleCsvUpload = async (file) => {
+    if (file && (file.type === 'application/pdf' || (file.name && file.name.toLowerCase().endsWith('.pdf')))) {
+      setCsvUploadState('idle');
+      setMessage({
+        type: 'info',
+        text: `Detected PDF '${file.name}'. Invoices and receipts should be uploaded in Section 2 below for OCR field extraction.`
+      });
+      const el = document.getElementById('invoice-upload-card');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
     setCsvUploadState('uploading');
     setMessage(null);
     const formData = new FormData();
@@ -523,43 +585,18 @@ export default function Upload() {
           accept=".csv,.json"
           onUpload={handleCsvUpload}
           uploadState={csvUploadState}
+          onReset={() => setCsvUploadState('idle')}
         />
       </div>
 
       {/* ── SECTION 2: Invoice & Receipt Upload (Two options: Attach or Standalone) ── */}
-      <InvoiceUploadSection onUploaded={() => setInvoiceUploaded(true)} />
+      <div id="invoice-upload-card">
+        <InvoiceUploadSection onUploaded={() => setInvoiceUploaded(true)} />
+      </div>
 
       <AutomaticCheckResult checks={automaticChecks}/>
 
-      {/* ── OPTIONAL: Master Reference Data & Ledger Ingestion Toggle ── */}
-      {isReviewer(user) && (
-        <>
-          <div className="glass-card mb-6 flex items-center justify-between p-4 flex-wrap gap-3">
-            <div className="flex items-center gap-2.5">
-              <Database size={18} className="text-accent-primary" />
-              <div>
-                <strong className="text-xs text-primary block">Master Reference Data & Ledger Ingestion</strong>
-                <span className="text-[11px] text-muted">Upload company ground truth: Vendor Master, Employee Roster, and Payroll Payments.</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary text-xs flex items-center gap-1.5"
-              onClick={() => setShowMaster(prev => !prev)}
-            >
-              <span>{showMaster ? 'Hide Master Data Ingestion' : 'Show Master Data Ingestion'}</span>
-            </button>
-          </div>
-
-          {showMaster && (
-            <div className="mb-6">
-              <MasterDataImport />
-            </div>
-          )}
-        </>
-      )}
-
-      {isReviewer(user) && (csvUploadState === 'complete' || invoiceUploaded) && (
+      {isReviewer(user) && csvUploadState === 'complete' && (
         <div className="glass-card mb-6 flex items-center justify-between gap-5" style={{ padding: '18px 24px' }}>
           <div>
             <h3 className="font-semibold text-sm">Automated screening triggers after upload</h3>
@@ -571,33 +608,6 @@ export default function Upload() {
           </button>
         </div>
       )}
-
-      <div className="pipeline-status-card">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="text-base font-semibold" style={{ margin: 0 }}>End-to-End Ingestion Pipeline</h3>
-            <p className="text-xs text-secondary mt-1">Multi-stage autonomous audit processing pipeline status.</p>
-          </div>
-          <span className="badge text-xs" style={{ background: 'rgba(239,153,118,0.15)', color: '#ef9976', border: '1px solid rgba(239,153,118,0.3)' }}>Active Engine</span>
-        </div>
-        <div className="pipeline-steps-grid">
-          {[
-            { num: 1, label: 'Data Ingestion', sub: 'CSV & Ledger sync', state: csvUploadState === 'complete' ? 'complete' : 'ready' },
-            { num: 2, label: 'OCR Extraction', sub: 'Field & amount parsing', state: invoiceUploaded ? 'complete' : 'ready' },
-            { num: 3, label: 'Feature Engineering', sub: 'Anomaly indicator build', state: (csvUploadState === 'complete' || invoiceUploaded) ? 'ready' : 'standby' },
-            { num: 4, label: 'ML Scoring', sub: 'Fraud & risk inference', state: (csvUploadState === 'complete' || invoiceUploaded) ? 'ready' : 'standby' },
-          ].map(s => (
-            <div key={s.num} className={`pipeline-step-item ${s.state}`}>
-              <div className="step-num">{s.state === 'complete' ? '✓' : `0${s.num}`}</div>
-              <div className="step-info">
-                <span className="step-title">{s.label}</span>
-                <span className="step-sub">{s.sub}</span>
-              </div>
-              <span className={`step-badge ${s.state}`}>{s.state === 'complete' ? 'Complete' : s.state === 'ready' ? 'Ready' : 'Pending'}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,8 +1,9 @@
+/* AuditAI Workspace Settings Modal - SaaS Light Theme */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
-  backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(6px);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -13,20 +14,20 @@
 
 .modal-content {
   width: 100%;
-  max-width: 540px;
+  max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
-  background: #1c1815 !important;
-  border: 1px solid #3c342f !important;
-  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.85) !important;
-  border-radius: 16px;
-  padding: 32px 36px;
-  color: #f5f5f4 !important;
-  animation: slideUp 0.2s ease-out;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16) !important;
+  border-radius: 20px;
+  padding: 28px 32px;
+  color: #0f172a !important;
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modal-content h2 {
-  color: #f5f5f4 !important;
+  color: #0f172a !important;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -34,21 +35,21 @@
 }
 
 .modal-content .text-muted {
-  color: #a8a29e !important;
+  color: #64748b !important;
 }
 
 .modal-content .text-secondary {
-  color: #d6d3d1 !important;
+  color: #475569 !important;
 }
 
 .modal-content .border-glass {
-  border-color: #38302a !important;
+  border-color: #f1f5f9 !important;
 }
 
 .modal-content label {
   font-size: 13.5px !important;
   font-weight: 600 !important;
-  color: #f5f5f4 !important;
+  color: #0f172a !important;
   margin-bottom: 8px !important;
   display: block !important;
   letter-spacing: -0.01em;
@@ -58,29 +59,29 @@
 .modal-content select.input {
   width: 100%;
   height: 46px;
-  background: #25201c !important;
-  border: 1px solid #483d35 !important;
+  background: #f8fafc !important;
+  border: 1.5px solid #cbd5e1 !important;
   border-radius: 10px;
   padding: 0 16px;
-  color: #f5f5f4 !important;
+  color: #0f172a !important;
   font-size: 14px;
   box-sizing: border-box;
   outline: none;
-  transition: all 0.15s ease;
+  transition: all 0.18s ease;
 }
 
 .modal-content input.input:focus,
 .modal-content select.input:focus {
-  border-color: #ef9976 !important;
-  background: #2c2520 !important;
-  box-shadow: 0 0 0 3px rgba(239, 153, 118, 0.22) !important;
+  border-color: #ff5722 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(255, 87, 34, 0.15) !important;
 }
 
 .modal-content .btn-secondary {
   height: 42px;
-  background: #2b2520 !important;
-  color: #d6d3d1 !important;
-  border: 1px solid #483d35 !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  border: 1.5px solid #cbd5e1 !important;
   border-radius: 9px;
   padding: 0 20px;
   font-size: 13.5px;
@@ -90,29 +91,29 @@
 }
 
 .modal-content .btn-secondary:hover {
-  background: #382f28 !important;
-  color: #fff !important;
-  border-color: #5c4e43 !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
 }
 
 .modal-content .btn-primary {
   height: 42px;
-  background: #ef9976 !important;
-  color: #1a130e !important;
-  border: 1px solid #ef9976 !important;
+  background: #ff5722 !important;
+  color: #ffffff !important;
+  border: 1px solid #ff5722 !important;
   border-radius: 9px;
   padding: 0 22px;
   font-size: 13.5px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 3px 12px rgba(239, 153, 118, 0.28);
+  box-shadow: 0 3px 12px rgba(255, 87, 34, 0.28);
   transition: all 0.15s ease;
 }
 
 .modal-content .btn-primary:hover {
-  background: #f1aa8d !important;
+  background: #ea580c !important;
   transform: translateY(-1px);
-  box-shadow: 0 5px 16px rgba(239, 153, 118, 0.35);
+  box-shadow: 0 5px 16px rgba(255, 87, 34, 0.35);
 }
 
 @keyframes fadeIn {

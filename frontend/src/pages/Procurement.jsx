@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Plus, X, Check, Clock3, FileText, Upload, ShieldCheck, AlertTriangle, Search, MessageSquare, Download, Building2, ChevronRight, RefreshCw, Sparkles, Pencil, Trash2, RotateCcw, Clock, Bell, Network } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Plus, X, Check, Clock3, FileText, Upload, ShieldCheck, AlertTriangle, Search, MessageSquare, Download, Building2, ChevronRight, RefreshCw, Sparkles, Pencil, Trash2, RotateCcw, Clock, Bell, Network, Filter, Package, Lightbulb, TrendingUp, Wrench, CheckCircle2, Shield } from 'lucide-react';
 import { procurementApi } from '../api/client';
 import './Procurement.css';
 import Sourcing from './Sourcing';
@@ -19,6 +19,102 @@ const DATA_TYPES = ['Confidential Business Information', 'Company Financial Data
 const total = (terms) => terms.items.reduce((s, i) => s + Number(i.quantity) * Number(i.unit_price), 0) + Number(terms.delivery) + Number(terms.tax);
 const errorText = (e) => { const d = e.response?.data?.detail; return typeof d === 'string' ? d : Array.isArray(d) ? d.map(x => `${x.loc?.slice(-1)}: ${x.msg}`).join('; ') : 'Unable to connect. Check that the backend is running and procurement tables are initialized.'; };
 function Badge({ value }) { return <span className={`p-badge p-${value}`}>{label(value)}</span>; }
+
+function DepartmentBadge({ department }) {
+  const dept = (department || 'Operations').trim();
+  const lower = dept.toLowerCase();
+  let toneClass = 'dept-slate';
+  if (lower.includes('op')) toneClass = 'dept-indigo';
+  else if (lower.includes('fin')) toneClass = 'dept-emerald';
+  else if (lower.includes('it') || lower.includes('tech') || lower.includes('eng')) toneClass = 'dept-sky';
+  else if (lower.includes('sale') || lower.includes('mark')) toneClass = 'dept-rose';
+  else if (lower.includes('leg')) toneClass = 'dept-purple';
+  else if (lower.includes('hr') || lower.includes('peop')) toneClass = 'dept-amber';
+
+  return (
+    <span className={`p-dept-pill ${toneClass}`}>
+      <span className="p-dept-indicator" />
+      {dept}
+    </span>
+  );
+}
+
+function StageProgressBar({ record }) {
+  const status = record.status || '';
+  let activeStep = 1;
+  let stageLabel = 'Draft Intake';
+  let isApproved = false;
+
+  if (['approved', 'matched', 'paid', 'completed'].includes(status)) {
+    activeStep = 4;
+    stageLabel = 'Approved & Committed';
+    isApproved = true;
+  } else if (['submitted', 'in_review'].includes(status)) {
+    const steps = record.approval_steps || [];
+    const done = steps.filter(s => s.status === 'approved').length;
+    if (done >= 2) {
+      activeStep = 3;
+      stageLabel = `Review (${done}/${steps.length || 3})`;
+    } else {
+      activeStep = 3;
+      stageLabel = 'Awaiting Approvals';
+    }
+  } else if (['needs_info', 'sent_back'].includes(status)) {
+    activeStep = 2;
+    stageLabel = 'Info Requested';
+  } else if (status === 'draft') {
+    const step = record.intake_step ?? (record.workspace?.step ?? 0);
+    if (step >= 2) {
+      activeStep = 2;
+      stageLabel = 'Workflow Route';
+    } else if (step === 1) {
+      activeStep = 2;
+      stageLabel = 'Data Review';
+    } else {
+      activeStep = 1;
+      stageLabel = 'Draft Intake';
+    }
+  } else if (['rejected', 'canceled'].includes(status)) {
+    activeStep = 1;
+    stageLabel = 'Canceled';
+  }
+
+  const steps = [
+    { num: 1, Icon: Package, title: 'Intake' },
+    { num: 2, Icon: Building2, title: 'Department / Policy' },
+    { num: 3, Icon: Clock, title: 'Approvals' },
+    { num: 4, Icon: Check, title: 'Approved' },
+  ];
+
+  const fillWidth = activeStep === 1 ? '4%' : activeStep === 2 ? '33.33%' : activeStep === 3 ? '66.66%' : '100%';
+
+  return (
+    <div className={`p-timeline-progress ${isApproved ? 'is-approved' : ''}`} title={`Progress: ${stageLabel} (Stage ${activeStep} of 4)`}>
+      <div className="p-timeline-track">
+        <div className="p-timeline-line-bg" />
+        <div className="p-timeline-line-fill" style={{ width: fillWidth }} />
+        {steps.map(s => {
+          const isDone = s.num <= activeStep;
+          const isCurrent = s.num === activeStep;
+          const StepIcon = s.Icon;
+          return (
+            <div
+              key={s.num}
+              className={`p-timeline-node ${isDone ? 'done' : 'pending'} ${isCurrent ? 'current' : ''}`}
+              title={`${s.title}: ${isDone ? 'Completed' : 'Pending'}`}
+            >
+              <StepIcon size={11} strokeWidth={2.4} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="p-timeline-meta">
+        <span className="p-timeline-label">{stageLabel}</span>
+        <span className="p-timeline-pct">Stage {activeStep}/4</span>
+      </div>
+    </div>
+  );
+}
 function Empty({ title, children }) { return <div className="p-empty"><FileText size={30} /><h3>{title}</h3><p>{children}</p></div>; }
 function Field({ label: name, children }) { return <label className="p-field"><span>{name}</span>{children}</label>; }
 function Items({ terms, setTerms }) {
@@ -26,6 +122,218 @@ function Items({ terms, setTerms }) {
   const update = (index, key, value) => setTerms({ ...terms, items: terms.items.map((item, i) => i === index ? { ...item, [key]: value } : item) });
   return <><div className="p-item-list">{terms.items.map((item, i) => <div className="p-item-editor" key={i}><div className="p-row"><strong>Line item {i + 1}</strong>{terms.items.length > 1 && <button type="button" className="p-link" onClick={() => setTerms({ ...terms, items: terms.items.filter((_, n) => n !== i) })}>Remove</button>}</div><div className="p-form-grid"><Field label="SKU / product code"><input required value={item.sku} maxLength={100} onChange={e => update(i, 'sku', e.target.value)} /></Field><Field label="Description"><input required value={item.description} onChange={e => update(i, 'description', e.target.value)} /></Field><Field label="Quantity"><input required type="number" min="1" max="100000" step="1" value={item.quantity} onChange={e => update(i, 'quantity', e.target.value)} /></Field><Field label={`Unit price · ${currency}`}><input required type="number" min="0" step="0.01" value={item.unit_price} onChange={e => update(i, 'unit_price', e.target.value)} /></Field></div></div>)}</div><button type="button" className="p-link" onClick={() => setTerms({ ...terms, items: [...terms.items, blankItem()] })}><Plus size={14} /> Add line item</button><div className="p-form-grid"><Field label={`Delivery · ${currency}`}><input required type="number" min="0" step="0.01" value={terms.delivery} onChange={e => setTerms({ ...terms, delivery: e.target.value })} /></Field><Field label={`Tax · ${currency}`}><input required type="number" min="0" step="0.01" value={terms.tax} onChange={e => setTerms({ ...terms, tax: e.target.value })} /></Field></div><div className="p-total">Calculated total <strong>{money(total(terms), currency)}</strong></div></>;
 }
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return '1h ago';
+  try {
+    const date = new Date(timestamp.endsWith('Z') ? timestamp : `${timestamp}Z`);
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 0 || isNaN(diffMs)) return 'Just now';
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return '1d ago';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return `${Math.floor(diffDays / 7)}w ago`;
+  } catch {
+    return '1h ago';
+  }
+}
+
+function getNotifCategory(timestamp) {
+  if (!timestamp) return 'Today';
+  try {
+    const date = new Date(timestamp.endsWith('Z') ? timestamp : `${timestamp}Z`);
+    const now = new Date();
+    const diffHours = (now - date) / (1000 * 60 * 60);
+    if (diffHours <= 24) return 'Today';
+    if (diffHours <= 24 * 7) return 'This Week';
+    return 'Earlier';
+  } catch {
+    return 'Today';
+  }
+}
+
+function getNotifIcon(title = '', message = '') {
+  const text = `${title} ${message}`.toLowerCase();
+  if (text.includes('smart') || text.includes('learn') || text.includes('ai') || text.includes('feature')) {
+    return <Lightbulb size={18} strokeWidth={2.2} />;
+  }
+  if (text.includes('data') || text.includes('analy') || text.includes('trend') || text.includes('record')) {
+    return <TrendingUp size={18} strokeWidth={2.2} />;
+  }
+  if (text.includes('maint') || text.includes('system') || text.includes('update') || text.includes('tun')) {
+    return <Wrench size={18} strokeWidth={2.2} />;
+  }
+  if (text.includes('approv') || text.includes('settled') || text.includes('po') || text.includes('paid')) {
+    return <CheckCircle2 size={18} strokeWidth={2.2} />;
+  }
+  if (text.includes('secur') || text.includes('fraud') || text.includes('shield') || text.includes('risk')) {
+    return <Shield size={18} strokeWidth={2.2} />;
+  }
+  return <Sparkles size={18} strokeWidth={2.2} />;
+}
+
+const SAMPLE_AI_NOTIFICATIONS = [
+  {
+    id: 'ai-smart-1',
+    is_sample: true,
+    title: 'Your AI Just Got Smarter',
+    message: 'Adaptive learning speed increased by 27%. New feature: AI-driven trend forecasting',
+    category: 'Today',
+    timeLabel: '1h ago',
+    read: false,
+  },
+  {
+    id: 'ai-data-2',
+    is_sample: true,
+    title: 'Data Analysis Completed',
+    message: 'Your AI has processed 10,000+ records and identified key trends.',
+    category: 'Today',
+    timeLabel: '3h ago',
+    read: false,
+  },
+  {
+    id: 'ai-maint-3',
+    is_sample: true,
+    title: 'System Maintenance',
+    message: 'Performance tuning & security updates will be applied at 2:00 AM UTC',
+    category: 'Today',
+    timeLabel: '5h ago',
+    read: true,
+  },
+  {
+    id: 'ai-sec-4',
+    is_sample: true,
+    title: 'Continuous Audit Shield Active',
+    message: 'Scanned active sourcing requests. Anomaly thresholds calibrated at 99.4% precision.',
+    category: 'This Week',
+    timeLabel: '2d ago',
+    read: true,
+  },
+  {
+    id: 'ai-model-5',
+    is_sample: true,
+    title: 'Procurement Neural Net Retrained',
+    message: 'Autoencoder and Isolation Forest baselines synchronized with current workspace vendors.',
+    category: 'Earlier',
+    timeLabel: '1w ago',
+    read: true,
+  },
+];
+
+function AiNotificationCenter({ notifications, onMarkAllRead, onSelectNotification, onClose }) {
+  const [activeTab, setActiveTab] = useState('Today');
+  const [seeAll, setSeeAll] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [onClose]);
+
+  const allItems = useMemo(() => {
+    const realMapped = (notifications || []).map(item => ({
+      ...item,
+      category: getNotifCategory(item.created_at),
+      timeLabel: formatRelativeTime(item.created_at),
+      is_sample: false,
+    }));
+    return [...realMapped, ...SAMPLE_AI_NOTIFICATIONS];
+  }, [notifications]);
+
+  const displayedItems = useMemo(() => {
+    if (seeAll) return allItems;
+    const filtered = allItems.filter(item => item.category === activeTab);
+    return filtered.length > 0 ? filtered : allItems.slice(0, 4);
+  }, [allItems, activeTab, seeAll]);
+
+  return (
+    <div className="p-notification-menu" ref={containerRef} role="region" aria-label="AI Notification Center">
+      <div className="p-notif-top">
+        <h3 className="p-notif-title-main">AI Notification Center</h3>
+        <button
+          type="button"
+          className="p-notif-see-all"
+          onClick={() => setSeeAll(v => !v)}
+        >
+          {seeAll ? 'Show Tabs' : 'See All'}
+        </button>
+      </div>
+
+      {!seeAll && (
+        <div className="p-notif-tabs" role="tablist">
+          {['Today', 'This Week', 'Earlier'].map(tabName => (
+            <button
+              key={tabName}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tabName}
+              className={`p-notif-tab ${activeTab === tabName ? 'active' : ''}`}
+              onClick={() => setActiveTab(tabName)}
+            >
+              {tabName}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="p-notification-list">
+        {displayedItems.length > 0 ? (
+          displayedItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`p-notif-row ${item.read ? 'read' : 'unread'}`}
+              onClick={() => onSelectNotification(item)}
+            >
+              <div className="p-notif-icon-circle">
+                {getNotifIcon(item.title, item.message)}
+              </div>
+              <div className="p-notif-body">
+                <div className="p-notif-head">
+                  <div className="p-notif-headline">
+                    <span className="p-notif-dot" />
+                    <strong>{item.title}</strong>
+                  </div>
+                  <span className="p-notif-time">{item.timeLabel}</span>
+                </div>
+                <span className="p-notif-desc">{item.message}</span>
+              </div>
+            </button>
+          ))
+        ) : (
+          <p className="p-muted" style={{ textAlign: 'center', padding: '24px 0', margin: 0 }}>
+            No notifications in this period.
+          </p>
+        )}
+      </div>
+
+      <div className="p-notif-footer">
+        <span className="p-muted" style={{ fontSize: '11.5px', margin: 0 }}>
+          {notifications.filter(n => !n.read).length} unread updates
+        </span>
+        {notifications.length > 0 && (
+          <button
+            type="button"
+            className="p-notif-mark-btn"
+            onClick={onMarkAllRead}
+          >
+            Mark all read
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Modal({ title, close, children, busy, wide = false, fullscreen = false }) {
   const dialogRef = useRef(null);
   const closeRef = useRef(close); closeRef.current = close;
@@ -185,17 +493,35 @@ export default function Procurement({ user }) {
   const decideStep = (step, actionName, reason) => action(() => procurementApi.decideStep(selected.id, step.id, { action: actionName, note: reason }), actionName === 'approve' ? 'Approval recorded.' : `Step ${actionName.replaceAll('_', ' ')} recorded.`);
   const markNotificationRead = async item => { try { await procurementApi.readNotification(item.id); setNotifications(old => old.map(n => n.id === item.id ? { ...n, read: true } : n)); } catch (e) { setError(errorText(e)); } };
   const documentList = selected ? selected.documents : [];
-  const requestTable = rows => rows.length ? <div className="p-table-wrap"><table><thead><tr><th>Request</th><th>Supplier</th><th>Department</th><th>Amount</th><th>Current status</th><th>Actions</th></tr></thead><tbody>{rows.map(r => <tr key={r.record_key} className="p-table-row-clickable" onClick={e => { if (e.target.closest('button, a, input, select, textarea')) return; openRecord(r); }} style={{ cursor: 'pointer' }}>
-    <td><button className="p-title-link" disabled={r.status === 'deleted' || r.status === 'permanently_deleted'} onClick={() => openRecord(r)}><span>{r.kind === 'sourcing' ? 'SR' : 'PR'}-{String(r.id).padStart(4, '0')}</span>{r.title}</button></td>
-    <td>{r.terms.supplier_id || 'AI sourcing'}</td><td>{r.details?.department || 'Operations'}</td><td className="p-numeric">{money(r.total, r.terms.currency)}{r.kind === 'sourcing' && <small className="p-record-estimate">Estimated line total</small>}</td>
-    <td><span className={`p-badge p-${r.status}`}>{sourcingStatus(r.status)}</span>{r.progress?.vendors > 0 && <small className="p-status-caption">{r.progress.replies}/{r.progress.vendors} replies · {r.progress.pending} pending{r.progress.attention ? ` · ${r.progress.attention} need attention` : ''}</small>}{r.kind === 'purchase' && r.approval_steps?.find(s => ['ready', 'in_progress'].includes(s.status)) && <small className="p-status-caption">{r.approval_steps.find(s => ['ready', 'in_progress'].includes(s.status)).name}</small>}</td>
+  const requestTable = rows => rows.length ? <div className="p-table-wrap"><table><thead><tr><th>Request</th><th>Department</th><th>Progress</th><th>Amount</th><th>Current status</th><th>Actions</th></tr></thead><tbody>{rows.map(r => <tr key={r.record_key} role="button" tabIndex={0} aria-label={`Open ${r.title}`} className="p-table-row-clickable" onClick={e => { if (e.target.closest('button, a, input, select, textarea')) return; openRecord(r); }} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { if (e.target.closest('button, a, input, select, textarea')) return; e.preventDefault(); openRecord(r); } }} style={{ cursor: 'pointer' }} title="Click row to open review and workflow mind map">
+    <td className="p-request-cell">
+      <div className="p-request-info">
+        <div className="p-request-tag-row">
+          <span className={`p-id-pill ${r.kind === 'sourcing' ? 'sourcing' : 'purchase'}`}>
+            {r.kind === 'sourcing' ? 'SR' : 'PR'}-{String(r.id).padStart(4, '0')}
+          </span>
+          {r.terms.supplier_id && <span className="p-supplier-pill" title={r.terms.supplier_id}>{r.terms.supplier_id}</span>}
+        </div>
+        <strong className="p-request-title">{r.title}</strong>
+      </div>
+    </td>
+    <td><DepartmentBadge department={r.details?.department} /></td>
+    <td><StageProgressBar record={r} /></td>
+    <td className="p-amount-cell">
+      <strong className="p-amount-value">{money(r.total, r.terms.currency)}</strong>
+      {r.kind === 'sourcing' && <small className="p-record-estimate">Estimated line total</small>}
+    </td>
+    <td>
+      <span className={`p-badge p-${r.status}`}>{sourcingStatus(r.status)}</span>
+      {r.progress?.vendors > 0 && <small className="p-status-caption">{r.progress.replies}/{r.progress.vendors} replies · {r.progress.pending} pending{r.progress.attention ? ` · ${r.progress.attention} need attention` : ''}</small>}
+      {r.kind === 'purchase' && r.approval_steps?.find(s => ['ready', 'in_progress'].includes(s.status)) && <small className="p-status-caption">{r.approval_steps.find(s => ['ready', 'in_progress'].includes(s.status)).name}</small>}
+    </td>
     <td><div className="p-row-actions">{r.status === 'deleted' || r.status === 'permanently_deleted' ? <span className="p-badge p-permanently-deleted">Permanently Deleted</span> : <>
-      <button className="p-button p-review-btn" onClick={() => openRecord(r)} aria-label={`Open ${r.title}`} title="Open request review and mind map"><Network size={13} />Review</button>
-      <button className="p-button" disabled={busy || r.can_edit === false} title={r.can_edit === false ? 'Only the owner can edit, before approvals begin.' : 'Edit saved form details'} aria-label={`Edit ${r.title}`} onClick={() => editRecord(r)}><Pencil size={13} />Edit form</button>
-      <button className="p-button p-delete-request" disabled={busy || r.can_delete === false} title={r.can_delete === false ? 'Approved PO records are retained; only owners may delete other requests.' : 'Delete request'} aria-label={`Delete ${r.title}`} onClick={() => setDeleteTarget(r)}><Trash2 size={13} />Delete</button>
+      <button className="p-button" disabled={busy || r.can_edit === false} title={r.can_edit === false ? 'Only the owner can edit, before approvals begin.' : 'Edit saved form details'} aria-label={`Edit ${r.title}`} onClick={e => { e.stopPropagation(); editRecord(r); }}><Pencil size={12} />Edit form</button>
+      <button className="p-button p-delete-request" disabled={busy || r.can_delete === false} title={r.can_delete === false ? 'Approved PO records are retained; only owners may delete other requests.' : 'Delete request'} aria-label={`Delete ${r.title}`} onClick={e => { e.stopPropagation(); setDeleteTarget(r); }}><Trash2 size={12} />Delete</button>
     </>}</div></td></tr >)
   }</tbody ></table ></div > : <Empty title={showDeleted ? 'No deleted requests' : 'No requests here yet'}>{showDeleted ? 'Deleted requests appear here and can be restored.' : 'Create a purchase request to start a tracked approval workflow.'}</Empty>;
-  return <main className="procurement"><header className="p-topbar"><div><span className="p-org-icon"><Building2 size={16} /></span> Your workspace <span className="p-top-divider">/</span><span className="p-muted">Procurement</span></div><div className="p-top-actions"><button type="button" className="p-notification-button" aria-label={`Notifications, ${notifications.filter(n => !n.read).length} unread`} onClick={() => setShowNotifications(v => !v)}><Bell size={18} color="#ef9976" strokeWidth={2.2} />{notifications.filter(n => !n.read).length > 0 && <b>{notifications.filter(n => !n.read).length}</b>}</button><span className="p-environment"><span /> PayPal sandbox</span></div>{showNotifications && <div className="p-notification-menu"><strong>Notifications</strong>{notifications.length ? notifications.map(item => <button key={item.id} onClick={() => { markNotificationRead(item); setShowNotifications(false); const srMatch = `${item.title || ''} ${item.message || ''}`.match(/SR-0*(\d+)/i); if (srMatch) navigate(`${location.pathname}?newRequest=new&requestId=${Number(srMatch[1])}&intakeStep=2`); else if (item.request_id) open(item.request_id); }}><span>{item.title}</span><small>{item.message}</small></button>) : <p className="p-muted">No notifications yet.</p>}</div>}</header><div className="p-content"><div className="p-page-heading"><div>{selected ? <button className="p-link" onClick={() => { setSelected(null); setNotice(''); setError(''); }}><ArrowLeft size={14} /> Back to requests</button> : <span className="p-eyebrow">SPEND WITH CONFIDENCE</span>}<h1>{sourceViewId ? 'Request mind map' : selected ? selected.title : { overview: 'Procurement overview', requests: 'Purchase requests', approvals: 'Approval queue', exceptions: 'Exception workspace', suppliers: 'Supplier directory', documents: 'Document center' }[area] || 'Procurement'}</h1><p>{selected ? `PR-${String(selected.id).padStart(4, '0')} · ${selected.details.department || 'Operations'} · Created ${when(selected.created_at)}` : 'From the first request to the final payment, every decision has a record.'}</p></div><button className="p-button primary" onClick={() => setNewRequestRoute('choice')}><Plus size={17} /> New request</button></div>
+  return <main className="procurement"><header className="p-topbar"><div><span className="p-org-icon"><Building2 size={16} /></span> Your workspace <span className="p-top-divider">/</span><span className="p-muted">Procurement</span></div><div className="p-top-actions" style={{ position: 'relative' }}><button type="button" className="p-notification-button" aria-label={`Notifications, ${notifications.filter(n => !n.read).length} unread`} onClick={() => setShowNotifications(v => !v)}><Bell size={19} color="#ff5722" strokeWidth={2.2} />{notifications.filter(n => !n.read).length > 0 && <b>{notifications.filter(n => !n.read).length}</b>}</button>{showNotifications && <AiNotificationCenter notifications={notifications} onMarkAllRead={() => notifications.forEach(n => markNotificationRead(n))} onSelectNotification={item => { if (!item.is_sample) { markNotificationRead(item); const srMatch = `${item.title || ''} ${item.message || ''}`.match(/SR-0*(\d+)/i); if (srMatch) navigate(`/procurement/invoice-review/${Number(srMatch[1])}`); else if (item.request_id) open(item.request_id); } setShowNotifications(false); }} onClose={() => setShowNotifications(false)} />}</div></header><div className="p-content"><div className="p-page-heading"><div>{selected ? <button className="p-link" onClick={() => { setSelected(null); setNotice(''); setError(''); }}><ArrowLeft size={14} /> Back to requests</button> : <span className="p-eyebrow">SPEND WITH CONFIDENCE</span>}<h1>{sourceViewId ? 'Request mind map' : selected ? selected.title : area === 'overview' ? `Good morning, ${user?.name?.split(' ')[0] || user?.display_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Team'}` : { requests: 'Purchase requests', approvals: 'Approval queue', exceptions: 'Exception workspace', suppliers: 'Supplier directory', documents: 'Document center' }[area] || 'Procurement'}</h1><p>{selected ? `PR-${String(selected.id).padStart(4, '0')} · ${selected.details.department || 'Operations'} · Created ${when(selected.created_at)}` : 'Stay on top of your tasks, monitor progress, and track status.'}</p></div><button className="p-button primary" onClick={() => setNewRequestRoute('choice')}><Plus size={17} /> New request</button></div>
     {error && <div className="p-notice p-danger" role="alert"><AlertTriangle size={17} />{error}</div>}{notice && <div className="p-notice" role="status">{notice}</div>}
     {loading ? <div className="p-loading">Loading your workspace…</div> : sourceViewId ? <SourcingRequestView id={sourceViewId} onBack={() => { navigate(location.pathname); load().catch(e => setError(errorText(e))); }} onEdit={() => editRecord({ kind: 'sourcing', id: sourceViewId })} /> : selected ? <><div className="p-detail-head"><Badge value={selected.status} /><strong>{money(selected.total, selected.terms.currency)}</strong><span>{selected.terms.supplier_id}</span><span>{selected.details.payment_terms || 'Due on receipt'}</span></div><div className="p-detail-grid"><section className="p-detail-main"><div className="p-tabs" role="tablist" aria-label="Purchase details">{['Overview', 'Purchase details', 'Documents', 'Invoices', 'Activity'].map(t => <button role="tab" aria-selected={tab === t} key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}</button>)}</div>
       {tab === 'Overview' && <><section className="p-panel">{selected.approval_steps?.length ? <WorkflowView steps={selected.approval_steps} user={user} requesterId={selected.requester_id} requester={selected.requester} departmentHead={selected.department_head} onOpen={setActiveApprovalStepId} onApprove={approveStep} /> : <p className="p-muted">Approval steps are being initialized.</p>}</section><section className="p-panel"><h2>Purchase context</h2><p className="p-context-purpose">{selected.details.purpose || 'No business-purpose note provided.'}</p><div className="p-info-grid"><div><small>Requester</small><strong>{selected.requester?.name || 'Not matched in company directory'}</strong>{selected.requester?.email && <small>{selected.requester.email}</small>}</div><div><small>Department head</small><strong>{selected.department_head?.name || 'Not matched in company directory'}</strong>{selected.department_head?.is_backup && <small>Acting backup · {selected.department_head.department}</small>}</div><div><small>Department</small><strong>{selected.details.department || selected.requester?.department || 'Operations'}</strong></div><div><small>Category</small><strong>{selected.details.category || 'Not specified'}</strong></div><div><small>Personal data shared</small><strong>{selected.details.shares_personal_data === true ? 'Yes · security approval required' : selected.details.shares_personal_data === null ? "Unknown · security review required" : 'No'}</strong></div><div><small>Recipient reference</small><strong>{selected.terms.recipient_id}</strong></div></div>{selected.details.data_types?.length > 0 && <p className="p-muted">Data types: {selected.details.data_types.join(', ')}</p>}{selected.details.sourcing_requirements && <div className="p-sourcing-context"><h3>Sourcing requirements</h3><p>Delivery: {selected.details.sourcing_requirements.delivery_deadline || 'Not specified'} · {selected.details.sourcing_requirements.delivery_location || 'Not specified'}</p><p>Preferences: {selected.details.sourcing_requirements.specifications || 'Not specified'}</p><p>Mandatory: {selected.details.sourcing_requirements.mandatory_conditions || 'Not specified'}</p></div>}{selected.details.data_usage && <p>{selected.details.data_usage}</p>}</section>{selected.order && <div className="p-po-banner"><FileText size={22} /><div><strong>Purchase order PO-{String(selected.order.id).padStart(4, '0')}</strong><p>Approved terms preserved · {money(selected.order.total)}</p></div><button className="p-button" onClick={() => setTab('Purchase details')}>View terms</button></div>}</>}
@@ -206,7 +532,7 @@ export default function Procurement({ user }) {
       {tab === 'Activity' && <section className="p-panel"><h2>Audit trail</h2><div className="p-timeline">{selected.events.length ? selected.events.map(e => <div className="p-event" key={e.id}><span className="p-event-dot" /><div><strong>{label(e.action)}</strong><small>{when(e.created_at)} · User #{e.actor_id}</small>{e.details.note && <p>{e.details.note}</p>}{e.details.status && <Badge value={e.details.status} />}</div></div>) : <p className="p-muted">No activity has been recorded for this legacy request.</p>}</div></section>}
     </section><aside className="p-detail-sidebar"><section className="p-panel"><h3>Request summary</h3><dl><dt>Total</dt><dd>{money(selected.total, selected.terms.currency)}</dd><dt>Supplier</dt><dd>{selected.terms.supplier_id}</dd><dt>Requester</dt><dd>{selected.requester?.name || `User #${selected.requester_id}`}</dd><dt>Department head</dt><dd>{selected.department_head?.name || 'Not found in directory'}</dd><dt>Workflow</dt><dd>Request a purchase</dd><dt>Currency</dt><dd>{selected.terms.currency}</dd><dt>PO</dt><dd>{selected.order ? `PO-${selected.order.id}` : 'Awaiting approval'}</dd></dl></section><section className="p-panel"><h3>{canApprove ? 'Your approval is needed' : 'Collaboration'}</h3><Field label="Comment / decision reason"><textarea value={note} maxLength={3000} onChange={e => setNote(e.target.value)} placeholder="Add context for your team…" /></Field><div className="p-actions"><button className="p-button" disabled={busy || !note.trim()} onClick={() => action(() => procurementApi.comment(selected.id, note), 'Comment saved.')}><MessageSquare size={14} /> Comment</button></div>{canApprove && <div className="p-approval-actions"><button className="p-button primary" disabled={busy} onClick={() => decision('approve')}>Approve step</button><button className="p-button danger" disabled={busy || !note.trim()} onClick={() => decision('reject')}>Reject</button><button className="p-button" disabled={busy || !note.trim()} onClick={() => decision('request_info')}>Request more information</button></div>}{selected.status === 'needs_info' && selected.requester_id === user.id && <button className="p-button primary" disabled={busy || !note.trim()} onClick={() => action(() => procurementApi.resubmit(selected.id, note), 'Response submitted for approval.')}>Respond & resubmit</button>}<p className="p-muted">Signed in as {user.role}. Approvals are checked on the server.</p></section></aside></div></>
       : <>{area === 'overview' && <ProcurementOverview records={requests} />}
-        {['overview', 'requests', 'approvals'].includes(area) && <section className="p-panel"><div className="p-section-heading"><div><h2>{area === 'approvals' ? 'Pending approval' : 'Purchase requests'}</h2><p className="p-muted">{area === 'approvals' ? 'Requests at every approval stage; actions depend on your assigned role.' : 'Saved sourcing briefs, purchase details, approvals, and evidence. Open a request to continue.'}</p></div><div className="p-request-table-tools"><div className="p-search"><Search size={16} /><input aria-label="Search requests" placeholder="Search requests or suppliers" value={search} onChange={e => setSearch(e.target.value)} /></div></div></div>{requestTable(filtered)}</section>}
+        {['overview', 'requests', 'approvals'].includes(area) && <section className="p-panel"><div className="p-section-heading"><div><h2>{area === 'approvals' ? 'Pending approval' : 'Recent Activities & Purchase Requests'}</h2><p className="p-muted">{area === 'approvals' ? 'Requests at every approval stage; actions depend on your assigned role.' : 'Stay on top of your saved sourcing briefs, purchase details, and approvals.'}</p></div><div className="p-request-table-tools"><div className="p-search"><Search size={16} /><input aria-label="Search requests" placeholder="Search requests or suppliers" value={search} onChange={e => setSearch(e.target.value)} /></div><button type="button" className="p-button p-filter-tool-btn"><Filter size={14} /> Filter</button></div></div>{requestTable(filtered)}</section>}
         {area === 'suppliers' && <section className="p-panel"><h2>Suppliers referenced in purchases</h2><p className="p-muted">Derived from visible requests. These records have not undergone identity or tax verification.</p>{requests.length ? <div className="p-supplier-grid">{[...new Set(requests.map(r => r.terms.supplier_id))].map(s => <div className="p-supplier" key={s}><Building2 size={23} /><h3>{s}</h3><Badge value="unverified" /><p>{requests.filter(r => r.terms.supplier_id === s).length} purchase request(s)</p><button className="p-link" onClick={() => { navigate('/procurement/requests'); }}>View requests <ArrowRight size={14} /></button></div>)}</div> : <Empty title="No supplier references yet">Suppliers appear when purchase requests are created.</Empty>}</section>}
         {area === 'documents' && <section className="p-panel"><h2>Documents by purchase</h2><p className="p-muted">Open a request to attach or download its source documents.</p>{requestTable(requests.filter(r => r.document_count > 0))}</section>}
         {area === 'exceptions' && <section className="p-panel"><h2>Review and resolve discrepancies</h2><p className="p-muted">Open a purchase and select Invoices to see mismatched fields, request a correction, and recheck a revised invoice.</p>{requestTable(requests.filter(r => r.invoice_status === 'exception'))}</section>}

@@ -152,19 +152,6 @@ export default function MasterDataImport() {
               {busy ? 'Importing and checking...' : 'Import and check'}
             </button>
           </div>
-          <div className="master-actions-row">
-            {DATASETS[dataset] ? (
-              <a href={`/samples/master-data/${dataset}.csv`} download className="master-download-link">
-                <Download size={14} />
-                <span>Download synthetic example CSV ({DATASETS[dataset]})</span>
-              </a>
-            ) : (
-              <a href="/downloads/aster/aster_upload_pack.zip" download className="master-download-link">
-                <Download size={14} />
-                <span>Download Aster demo files</span>
-              </a>
-            )}
-          </div>
         </form>
       ) : (
         <p className="text-xs text-muted">
@@ -174,9 +161,29 @@ export default function MasterDataImport() {
 
       {error && <p role="alert" className="glass-card mb-4 text-xs text-status-danger">{error}</p>}
       {report && (
-        <div role="status" className="mt-4 p-3 rounded-lg bg-bg-surface border border-border-light text-xs">
-          <AutomaticCheckResult checks={report.checks} />
-          <p className="mt-2 text-secondary">
+        <div role="status" className="mt-4 p-4 rounded-xl bg-bg-surface border border-border-light text-xs shadow-md">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-border-light flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-primary capitalize text-sm">
+                {report.dataset.replace('-', ' ')}
+              </span>
+              <span className="badge badge-green text-xs">
+                {report.status || report.upload_status || 'Imported'}
+              </span>
+            </div>
+            {report.inserted != null && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="badge badge-green text-[11px] font-semibold">{report.inserted} Inserted</span>
+                <span className="badge badge-blue text-[11px] font-semibold">{report.updated} Updated</span>
+                <span className="badge badge-gray text-[11px] font-semibold">{report.skipped} Skipped</span>
+                <span className={`badge ${report.rejected > 0 ? 'badge-red' : 'badge-gray'} text-[11px] font-semibold`}>
+                  {report.rejected} Rejected
+                </span>
+              </div>
+            )}
+          </div>
+
+          <p className="mt-1 text-secondary leading-relaxed">
             {report.dataset}: {report.status || report.upload_status || 'Imported'}.{' '}
             {report.inserted != null
               ? `Inserted ${report.inserted}; updated ${report.updated}; skipped ${report.skipped}; rejected ${report.rejected}.`
@@ -187,12 +194,15 @@ export default function MasterDataImport() {
                   ? 'Receipt processed.'
                   : 'See upload status.')}
           </p>
+
+          <AutomaticCheckResult checks={report.checks} />
+
           {report.errors?.length > 0 && (
-            <details open className="mt-2">
-              <summary className="cursor-pointer font-medium text-status-warning">
+            <details open className="mt-3 p-3 rounded-lg bg-red-950/20 border border-status-danger/40">
+              <summary className="cursor-pointer font-semibold text-status-danger text-xs">
                 Row rejection report ({report.errors.length})
               </summary>
-              <ul className="mt-1 pl-4 list-disc text-muted">
+              <ul className="mt-2 pl-4 list-disc text-muted space-y-1">
                 {report.errors.map((e, i) => (
                   <li key={i}>
                     Row {e.row ?? 'file'}: {e.reason || e.error}

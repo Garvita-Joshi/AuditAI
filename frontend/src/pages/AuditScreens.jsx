@@ -78,10 +78,10 @@ export default function AuditScreens() {
         </div>
       </div>
 
-      <div className="flex justify-between items-center mb-5">
+      <div className="flex justify-between items-center mb-6 pt-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Compliance & Screening</h1>
-          <p className="text-xs text-secondary mt-1">
+          <h1 className="text-2xl font-bold tracking-tight text-primary">Compliance & Screening</h1>
+          <p className="text-sm text-secondary mt-1">
             Automated integrity algorithms, duty segregation rules, and enterprise policy verification.
           </p>
         </div>
@@ -89,12 +89,12 @@ export default function AuditScreens() {
 
       {/* Tabs Row */}
       <div
-        className="flex gap-2 mb-6 border-b border-glass pb-3"
+        className="flex gap-3 mb-8 border-b border-border-light pb-4 mt-2"
         style={{
           overflowX: 'auto',
           whiteSpace: 'nowrap',
           scrollbarWidth: 'none',
-          paddingBottom: '8px',
+          paddingBottom: '14px',
           alignItems: 'center',
         }}
       >
@@ -106,10 +106,10 @@ export default function AuditScreens() {
               key={tab.id}
               className={`btn ${isSelected ? 'btn-primary' : 'btn-secondary'} flex items-center gap-2`}
               style={{
-                padding: '8px 15px',
-                fontSize: '13px',
+                padding: '9px 18px',
+                fontSize: '13.5px',
                 fontWeight: isSelected ? 700 : 500,
-                borderRadius: '9px',
+                borderRadius: '10px',
                 flexShrink: 0,
                 whiteSpace: 'nowrap',
               }}
