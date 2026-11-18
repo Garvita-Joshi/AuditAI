@@ -459,489 +459,489 @@ export function WorkflowMindMap({ workflow, fullWorkflow, requestId, assessment:
             transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
-      <svg className="workflow-map-edges" width="100%" height="100%" aria-hidden="true">
-        <defs>
-          <marker id="workflow-arrow-h" markerWidth="7" markerHeight="7" refX="5.5" refY="3.5" orient="auto">
-            <path d="M 0 1 L 6 3.5 L 0 6 z" fill="#c2957b" />
-          </marker>
-        </defs>
-        {displayEdges.map((edge, index) => {
-          const from = positions[edge.source], to = positions[edge.target];
-          if (!from || !to) return null;
-          const x1 = from.right, y1 = from.centerY;
-          const x2 = to.left, y2 = to.centerY;
-          const midX = x1 + (x2 - x1) * 0.5;
-          const r = Math.min(8, Math.abs(y2 - y1) / 2, Math.max(4, Math.abs(x2 - x1) / 4));
-          const dirY = y2 > y1 ? 1 : y2 < y1 ? -1 : 0;
-          const pathD = Math.abs(y2 - y1) < 2
-            ? `M ${x1} ${y1} L ${x2} ${y2}`
-            : `M ${x1} ${y1} L ${midX - r} ${y1} Q ${midX} ${y1} ${midX} ${y1 + dirY * r} L ${midX} ${y2 - dirY * r} Q ${midX} ${y2} ${midX + r} ${y2} L ${x2} ${y2}`;
-          return <g key={`${edge.source}-${edge.target}-${index}`}>
-            <circle cx={x1} cy={y1} r="3.2" className="workflow-port-dot" />
-            <path d={pathD} markerEnd="url(#workflow-arrow-h)" />
-            <circle cx={x2} cy={y2} r="3.2" className="workflow-port-dot" />
-            {edge.label && <text x={midX} y={(y1 + y2) / 2 - 6}>{edge.label}</text>}
-          </g>;
-        })}
-      </svg>
-
-      <div className="workflow-branch-columns" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(240px, 1fr))` }}>
-        {columns.map((colNodes, colIndex) => (
-          <div key={colIndex} className={`workflow-branch-col workflow-branch-col-${colIndex}`}>
-            <div className="workflow-col-stage-label">
-              {colIndex === 0 ? 'STAGE 1 · INTAKE GATE' : colIndex === columns.length - 1 ? `STAGE ${colIndex + 1} · CONTROL & ML SETTLEMENT` : `STAGE ${colIndex + 1} · PARALLEL BRANCHES (${colNodes.length})`}
-            </div>
-            {colNodes.map((node) => {
-              const globalIndex = nodes.findIndex(n => n.id === node.id);
-              const primaryTask = node.review_tasks?.[0]?.title || 'Policy verification';
-              const taskCount = node.review_tasks?.length || 2;
-              const isApproved = !!nodeApprovals[node.id]?.approved;
-              const isProcessing = !isApproved && (node.id === authorityNodes[0]?.id || node.kind === 'review');
-              const avatars = getNodeAvatars(node);
-              const scope = getNodeScope(node);
-
-              return <article
-                key={node.id}
-                data-node-id={node.id}
-                tabIndex="0"
-                aria-label={`${node.label}. Click to inspect tasks.`}
-                className={`workflow-team-card kind-${node.kind} ${isApproved ? 'is-passed' : isProcessing ? 'is-processing' : 'is-pending'}`}
-                onClick={() => setActiveModalNode(node)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveModalNode(node); } }}
-              >
-                {/* TeamBit style node header */}
-                <div className="workflow-team-header">
-                  <div className="workflow-team-title-area">
-                    <span className="wf-scope-dot" />
-                    <span className="wf-scope-name">{scope}</span>
-                  </div>
-                  <div className="workflow-team-avatars">
-                    <div className="wf-avatar-cluster">
-                      {avatars.map((av, ai) => (
-                        <span
-                          key={ai}
-                          className="wf-avatar-bubble"
-                          style={{ backgroundColor: av.bg }}
-                          title={`${av.init} - Team member`}
-                        >
-                          {av.init}
-                        </span>
-                      ))}
-                    </div>
-                    <span className="wf-avatar-count">{globalIndex === 0 ? 18 : globalIndex === 1 ? 12 : 4}</span>
-                  </div>
-                </div>
-
-                {/* Status ribbon */}
-                <div className="wf-status-ribbon">
-                  {isApproved ? (
-                    <span className="wf-status-pill status-passed">
-                      <CheckCircle2 size={11} /> PASSED
-                    </span>
-                  ) : isProcessing ? (
-                    <span className="wf-status-pill status-processing">
-                      <span className="wf-pill-pulse-dot" /> PROCESSING
-                    </span>
-                  ) : (
-                    <span className="wf-status-pill status-pending">
-                      <Clock size={10} /> PENDING
-                    </span>
-                  )}
-                  <span className="wf-category-tag">{node.kind}</span>
-                </div>
-
-                {/* Nested subcards resembling teambit nested components */}
-                <div className="wf-nested-subcards">
-                  <div className="wf-nested-subcard">
-                    <div className="wf-subcard-header">
-                      <span className="wf-subcard-dot" />
-                      <span className="wf-subcard-title">{primaryTask}</span>
-                    </div>
-                    <span className="wf-subcard-tag">{node.owner_group}</span>
-                  </div>
-
-                  <div className="wf-nested-subcard">
-                    <div className="wf-subcard-header">
-                      <span className="wf-subcard-dot" />
-                      <span className="wf-subcard-title">Checkpoints ({taskCount} items)</span>
-                    </div>
-                    <span className="wf-subcard-tag">{node.kind === 'control' ? 'Automated + Finance' : 'Standard SLA'}</span>
-                  </div>
-
-                  {node.id === 'receipt-match' && (
-                    <div className="wf-nested-subcard wf-subcard-ml">
-                      <div className="wf-subcard-header">
-                        <Sparkles size={12} className="text-amber-500" />
-                        <span className="wf-subcard-title">ML Fraud Model</span>
-                      </div>
-                      {assessment ? (
-                        assessment.is_fraud ? (
-                          <span className="ml-badge-flagged"><AlertCircle size={10} /> Flagged</span>
-                        ) : (
-                          <span className="ml-badge-clean"><CheckCircle2 size={10} /> Safe</span>
-                        )
-                      ) : (
-                        <span className="ml-badge-pending">Active</span>
-                      )}
-                    </div>
-                  )}
-
-                  {node.id === 'payment-release' && (
-                    <div className="wf-nested-subcard wf-subcard-paypal">
-                      <div className="wf-subcard-header">
-                        <DollarSign size={12} className="text-emerald-500" />
-                        <span className="wf-subcard-title">PayPal Settlement</span>
-                      </div>
-                      <span className={paypalPayment?.status === 'completed' ? 'ml-badge-clean' : 'ml-badge-pending'}>
-                        {paypalPayment?.status === 'completed' ? 'Settled' : 'Ready'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {colIndex > 0 && <div className="workflow-node-port workflow-node-port-left" aria-hidden="true" />}
-                {colIndex < columns.length - 1 && <div className="workflow-node-port workflow-node-port-right" aria-hidden="true" />}
-              </article>;
+          <svg className="workflow-map-edges" width="100%" height="100%" aria-hidden="true">
+            <defs>
+              <marker id="workflow-arrow-h" markerWidth="7" markerHeight="7" refX="5.5" refY="3.5" orient="auto">
+                <path d="M 0 1 L 6 3.5 L 0 6 z" fill="#c2957b" />
+              </marker>
+            </defs>
+            {displayEdges.map((edge, index) => {
+              const from = positions[edge.source], to = positions[edge.target];
+              if (!from || !to) return null;
+              const x1 = from.right, y1 = from.centerY;
+              const x2 = to.left, y2 = to.centerY;
+              const midX = x1 + (x2 - x1) * 0.5;
+              const r = Math.min(8, Math.abs(y2 - y1) / 2, Math.max(4, Math.abs(x2 - x1) / 4));
+              const dirY = y2 > y1 ? 1 : y2 < y1 ? -1 : 0;
+              const pathD = Math.abs(y2 - y1) < 2
+                ? `M ${x1} ${y1} L ${x2} ${y2}`
+                : `M ${x1} ${y1} L ${midX - r} ${y1} Q ${midX} ${y1} ${midX} ${y1 + dirY * r} L ${midX} ${y2 - dirY * r} Q ${midX} ${y2} ${midX + r} ${y2} L ${x2} ${y2}`;
+              return <g key={`${edge.source}-${edge.target}-${index}`}>
+                <circle cx={x1} cy={y1} r="3.2" className="workflow-port-dot" />
+                <path d={pathD} markerEnd="url(#workflow-arrow-h)" />
+                <circle cx={x2} cy={y2} r="3.2" className="workflow-port-dot" />
+                {edge.label && <text x={midX} y={(y1 + y2) / 2 - 6}>{edge.label}</text>}
+              </g>;
             })}
-          </div>
-        ))}
-      </div>
-    </div>
+          </svg>
 
-    {/* Floating Zoom Controls (Bottom Left) */}
-    <div className="workflow-zoom-controls" aria-label="Workflow zoom controls">
-      <button type="button" onClick={handleZoomIn} title="Zoom In" aria-label="Zoom in">
-        <Plus size={14} />
-      </button>
-      <button type="button" onClick={handleZoomOut} title="Zoom Out" aria-label="Zoom out">
-        <Minus size={14} />
-      </button>
-      <button type="button" onClick={handleZoomReset} title="Reset Zoom" aria-label="Reset zoom">
-        <Maximize2 size={13} />
-      </button>
-      <span className="wf-zoom-level-text">{Math.round(zoomLevel * 100)}%</span>
-    </div>
-
-    {/* Floating MiniMap Thumbnail (Bottom Right) */}
-    <div className="workflow-minimap" aria-hidden="true">
-      <div className="workflow-minimap-header">
-        <span>Graph Map</span>
-      </div>
-      <div className="workflow-minimap-grid">
-        {columns.map((col, ci) => (
-          <div key={ci} className="workflow-minimap-col">
-            {col.map((node) => (
-              <div
-                key={node.id}
-                className={`workflow-minimap-dot kind-${node.kind} ${nodeApprovals[node.id]?.approved ? 'is-passed' : ''}`}
-                title={node.label}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  </div>
-
-    {activeModalNode && (
-      <div className="workflow-checkpoint-backdrop" onClick={() => setActiveModalNode(null)}>
-        <div className="workflow-checkpoint-modal" onClick={e => e.stopPropagation()}>
-          <header>
-            <div className="workflow-modal-header-text">
-              <span className={`workflow-map-kind ${activeModalNode.kind}`}>{activeModalNode.kind}</span>
-              <h3>{activeModalNode.label}</h3>
-              <p className="workflow-modal-owner">{activeModalNode.owner_group}</p>
-            </div>
-            <button type="button" className="workflow-modal-close" onClick={() => setActiveModalNode(null)} aria-label="Close checkpoint details"><X size={18} /></button>
-          </header>
-          <p className="workflow-modal-desc">{activeModalNode.detail}</p>
-          <div className="workflow-detail-meta">
-            <div>
-              <span aria-hidden="true" className="workflow-meta-icon"><ShieldCheck size={16} /></span>
-              <p>
-                <small>Responsible reviewer</small>
-                <strong>{activeModalNode.assignee?.name || activeModalNode.owner_group || 'Role assignment required'}</strong>
-                {activeModalNode.assignee?.role && <small>{activeModalNode.assignee.role}{activeModalNode.assignee.is_backup ? ' · backup owner' : ''}{activeModalNode.assignee.employee_id ? ` · ID: ${activeModalNode.assignee.employee_id}` : ''}</small>}
-              </p>
-            </div>
-            <div>
-              <span aria-hidden="true" className="workflow-meta-icon"><Clock size={16} /></span>
-              <p>
-                <small>Due date / SLA</small>
-                <strong>{activeModalNode.sla_label || 'Set by the assigned approver'}</strong>
-              </p>
-            </div>
-          </div>
-          {(activeModalNode.owner_group === 'Legal' || (activeModalNode.label || '').toLowerCase().includes('legal') || activeModalNode.id === 'legal-review') && (
-            <div className="workflow-legal-panel" style={{ margin: '14px 0', padding: '16px', borderRadius: 10, background: 'rgba(239, 153, 118, 0.07)', border: '1px solid rgba(239, 153, 118, 0.28)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <ShieldCheck size={16} style={{ color: '#ef9976' }} />
-                  <strong style={{ color: '#f5d0bc', fontSize: 13 }}>Legal Review &amp; Contract Documents (MSA &amp; SOW)</strong>
+          <div className="workflow-branch-columns" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(240px, 1fr))` }}>
+            {columns.map((colNodes, colIndex) => (
+              <div key={colIndex} className={`workflow-branch-col workflow-branch-col-${colIndex}`}>
+                <div className="workflow-col-stage-label">
+                  {colIndex === 0 ? 'STAGE 1 · INTAKE GATE' : colIndex === columns.length - 1 ? `STAGE ${colIndex + 1} · CONTROL & ML SETTLEMENT` : `STAGE ${colIndex + 1} · PARALLEL BRANCHES (${colNodes.length})`}
                 </div>
-                <span style={{ fontSize: 11, background: 'rgba(239, 153, 118, 0.2)', color: '#ef9976', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
-                  Assigned: Kavita Menon (Legal ID: E010)
-                </span>
-              </div>
-              <p style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 12 }}>
-                All uploaded agreements are permanently stored in the database and linked to this review stage. Responsible Reviewer: <strong style={{ color: '#0f172a' }}>Kavita Menon (Legal Head · ID: E010 · kavita.menon@demo-industries.example)</strong>.
-              </p>
-              <div style={{ display: 'grid', gap: 8 }}>
-                {[['msa', 'Master Services Agreement (MSA)'], ['sow', 'Statement of Work (SOW)']].map(([kind, title]) => {
-                  const doc = (contractDocs || []).find(d => d.kind === kind);
-                  return (
-                    <div key={kind} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                      <div>
-                        <strong style={{ fontSize: 12.5, color: '#0f172a', display: 'block' }}>{title}</strong>
-                        <small style={{ fontSize: 11, color: doc ? '#16a34a' : '#d97706', display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-                          {doc ? <><CheckCircle2 size={13} /> Uploaded in Database: {doc.filename}</> : <><AlertCircle size={13} /> Not uploaded yet (Legal will request from vendor)</>}
-                        </small>
+                {colNodes.map((node) => {
+                  const globalIndex = nodes.findIndex(n => n.id === node.id);
+                  const primaryTask = node.review_tasks?.[0]?.title || 'Policy verification';
+                  const taskCount = node.review_tasks?.length || 2;
+                  const isApproved = !!nodeApprovals[node.id]?.approved;
+                  const isProcessing = !isApproved && (node.id === authorityNodes[0]?.id || node.kind === 'review');
+                  const avatars = getNodeAvatars(node);
+                  const scope = getNodeScope(node);
+
+                  return <article
+                    key={node.id}
+                    data-node-id={node.id}
+                    tabIndex="0"
+                    aria-label={`${node.label}. Click to inspect tasks.`}
+                    className={`workflow-team-card kind-${node.kind} ${isApproved ? 'is-passed' : isProcessing ? 'is-processing' : 'is-pending'}`}
+                    onClick={() => setActiveModalNode(node)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveModalNode(node); } }}
+                  >
+                    {/* TeamBit style node header */}
+                    <div className="workflow-team-header">
+                      <div className="workflow-team-title-area">
+                        <span className="wf-scope-dot" />
+                        <span className="wf-scope-name">{scope}</span>
                       </div>
-                      {doc && (
-                        <a href={`/api/sourcing/${requestId}/contract-documents/${doc.id}/download`} target="_blank" rel="noreferrer" className="p-button" style={{ fontSize: 11.5, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#ffffff', color: '#ea580c', textDecoration: 'none', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                          <FileDown size={13} /> Download
-                        </a>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {(activeModalNode.id === 'receipt-match' || activeModalNode.id === 'payment-release') && (
-            <div className="workflow-ml-fraud-panel">
-              <div className="workflow-ml-header">
-                <div className="workflow-ml-header-title">
-                  <Sparkles size={16} className="workflow-sparkle-icon" />
-                  <strong>Final Invoice ML Fraud Assessment &amp; PayPal Settlement</strong>
-                </div>
-                <span className="workflow-ml-model-tag">Autoencoder + Isolation Forest</span>
-              </div>
-              <p className="workflow-ml-desc">
-                Final invoice terms are evaluated by the dual deep learning &amp; isolation forest pipeline after vendor selection and multi-department approvals. Once approved, PayPal Sandbox settlement is unlocked and full evaluation details are synced to the Claims section.
-              </p>
-
-              {assessment ? (
-                <div className={`workflow-ml-verdict-box ${assessment.is_fraud ? 'verdict-flagged' : 'verdict-clean'}`}>
-                  <div className="workflow-ml-verdict-row">
-                    <div className="workflow-verdict-badge">
-                      {assessment.is_fraud ? (
-                        <><AlertCircle size={16} /> <strong>FRAUD RISK: FLAGGED</strong></>
-                      ) : (
-                        <><CheckCircle2 size={16} /> <strong>FRAUD STATUS: CONSIDERED NOT FRAUD</strong></>
-                      )}
-                    </div>
-                    <span className="workflow-verdict-score">Anomaly Score: <strong>{(assessment.score * 100).toFixed(1)}%</strong></span>
-                  </div>
-                  <p className="workflow-verdict-label">{assessment.decision_label || (assessment.is_fraud ? 'Anomaly score exceeds policy threshold' : 'Invoice matches learned standard purchasing pattern')}</p>
-
-                  <div className="workflow-ml-metrics-grid">
-                    <div className="workflow-metric-card">
-                      <small>Autoencoder Percentile</small>
-                      <strong>{(assessment.autoencoder_percentile * 100).toFixed(1)}%</strong>
-                    </div>
-                    <div className="workflow-metric-card">
-                      <small>Isolation Forest Percentile</small>
-                      <strong>{(assessment.isolation_forest_percentile * 100).toFixed(1)}%</strong>
-                    </div>
-                    <div className="workflow-metric-card">
-                      <small>Decision Threshold</small>
-                      <strong>{((assessment.threshold || 0.85) * 100).toFixed(1)}%</strong>
-                    </div>
-                  </div>
-
-                  {assessment.basis?.length > 0 && (
-                    <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                      <small style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#d6d3d1', marginBottom: 6 }}>
-                        4-Pillar ML Basis Checks (Synced to Claims)
-                      </small>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                        {assessment.basis.map((b, bIdx) => (
-                          <div key={bIdx} style={{ fontSize: 12, color: '#f5f5f4', background: 'rgba(0,0,0,0.22)', padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
-                            {b}
-                          </div>
-                        ))}
+                      <div className="workflow-team-avatars">
+                        <div className="wf-avatar-cluster">
+                          {avatars.map((av, ai) => (
+                            <span
+                              key={ai}
+                              className="wf-avatar-bubble"
+                              style={{ backgroundColor: av.bg }}
+                              title={`${av.init} - Team member`}
+                            >
+                              {av.init}
+                            </span>
+                          ))}
+                        </div>
+                        <span className="wf-avatar-count">{globalIndex === 0 ? 18 : globalIndex === 1 ? 12 : 4}</span>
                       </div>
                     </div>
-                  )}
 
-                  <div className="workflow-ml-recommendation">
-                    <strong>Model Verdict &amp; Recommendation:</strong>
-                    <span>{assessment.recommendation || (assessment.is_fraud ? 'Block payment and flag for fraud investigation.' : 'Authorized for standard disbursement.')}</span>
-                  </div>
-
-                  {/* ── PAYPAL SANDBOX SETTLEMENT PANEL (UNLOCKED ON ML APPROVAL) ── */}
-                  {!assessment.is_fraud && requestId && (
-                    <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.32)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                        <strong style={{ fontSize: 13, color: '#ecfdf5' }}>
-                          PayPal Sandbox Settlement Gate · Connected
-                        </strong>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: paypalPayment?.status === 'completed' ? 'rgba(34,197,94,0.25)' : 'rgba(239,153,118,0.2)', color: paypalPayment?.status === 'completed' ? '#86efac' : '#f5d0bc' }}>
-                          {paypalPayment?.status === 'completed'
-                            ? `PAID · Order ${paypalPayment.order_id}`
-                            : paypalPayment?.order_id
-                              ? `Order Ready · ${paypalPayment.order_id} ($${paypalPayment.amount_usd} USD)`
-                              : 'ML Approved · Ready for Checkout'}
+                    {/* Status ribbon */}
+                    <div className="wf-status-ribbon">
+                      {isApproved ? (
+                        <span className="wf-status-pill status-passed">
+                          <CheckCircle2 size={11} /> PASSED
                         </span>
-                      </div>
-                      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#d6d3d1', lineHeight: 1.45 }}>
-                        {paypalPayment?.exchange_rate_note || 'The ML model verified this invoice as legitimate. Initiate or capture the PayPal Sandbox payment below.'}
-                      </p>
-                      {paypalNotice && (
-                        <p style={{ margin: '0 0 10px', padding: '8px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', color: '#a7f3d0', fontSize: 12 }}>
-                          {paypalNotice}
-                        </p>
+                      ) : isProcessing ? (
+                        <span className="wf-status-pill status-processing">
+                          <span className="wf-pill-pulse-dot" /> PROCESSING
+                        </span>
+                      ) : (
+                        <span className="wf-status-pill status-pending">
+                          <Clock size={10} /> PENDING
+                        </span>
                       )}
-                      {paypalPayment?.order_id && paypalPayment?.status !== 'completed' && (
-                        <div style={{ margin: '0 0 10px', padding: '9px 12px', borderRadius: 8, background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: 12, color: '#d1fae5' }}>
-                          <strong>Direct 1-Click Settlement:</strong> You do <em>not</em> need to fill in card details on PayPal's guest form. Click <strong>"Confirm / Capture Sandbox Payment"</strong> below to settle and reconcile this invoice directly.
+                      <span className="wf-category-tag">{node.kind}</span>
+                    </div>
+
+                    {/* Nested subcards resembling teambit nested components */}
+                    <div className="wf-nested-subcards">
+                      <div className="wf-nested-subcard">
+                        <div className="wf-subcard-header">
+                          <span className="wf-subcard-dot" />
+                          <span className="wf-subcard-title">{primaryTask}</span>
+                        </div>
+                        <span className="wf-subcard-tag">{node.owner_group}</span>
+                      </div>
+
+                      <div className="wf-nested-subcard">
+                        <div className="wf-subcard-header">
+                          <span className="wf-subcard-dot" />
+                          <span className="wf-subcard-title">Checkpoints ({taskCount} items)</span>
+                        </div>
+                        <span className="wf-subcard-tag">{node.kind === 'control' ? 'Automated + Finance' : 'Standard SLA'}</span>
+                      </div>
+
+                      {node.id === 'receipt-match' && (
+                        <div className="wf-nested-subcard wf-subcard-ml">
+                          <div className="wf-subcard-header">
+                            <Sparkles size={12} className="text-amber-500" />
+                            <span className="wf-subcard-title">ML Fraud Model</span>
+                          </div>
+                          {assessment ? (
+                            assessment.is_fraud ? (
+                              <span className="ml-badge-flagged"><AlertCircle size={10} /> Flagged</span>
+                            ) : (
+                              <span className="ml-badge-clean"><CheckCircle2 size={10} /> Safe</span>
+                            )
+                          ) : (
+                            <span className="ml-badge-pending">Active</span>
+                          )}
                         </div>
                       )}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                        {paypalPayment?.status !== 'completed' && (
-                          <button
-                            type="button"
-                            className="p-button primary"
-                            onClick={handlePaypalDirectSettle}
-                            disabled={paypalBusy}
-                            style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
-                          >
-                            {paypalBusy ? 'Settling via API…' : '1-Click Direct Settlement (Skip Login)'}
-                          </button>
+
+                      {node.id === 'payment-release' && (
+                        <div className="wf-nested-subcard wf-subcard-paypal">
+                          <div className="wf-subcard-header">
+                            <DollarSign size={12} className="text-emerald-500" />
+                            <span className="wf-subcard-title">PayPal Settlement</span>
+                          </div>
+                          <span className={paypalPayment?.status === 'completed' ? 'ml-badge-clean' : 'ml-badge-pending'}>
+                            {paypalPayment?.status === 'completed' ? 'Settled' : 'Ready'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {colIndex > 0 && <div className="workflow-node-port workflow-node-port-left" aria-hidden="true" />}
+                    {colIndex < columns.length - 1 && <div className="workflow-node-port workflow-node-port-right" aria-hidden="true" />}
+                  </article>;
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Floating Zoom Controls (Bottom Left) */}
+        <div className="workflow-zoom-controls" aria-label="Workflow zoom controls">
+          <button type="button" onClick={handleZoomIn} title="Zoom In" aria-label="Zoom in">
+            <Plus size={14} />
+          </button>
+          <button type="button" onClick={handleZoomOut} title="Zoom Out" aria-label="Zoom out">
+            <Minus size={14} />
+          </button>
+          <button type="button" onClick={handleZoomReset} title="Reset Zoom" aria-label="Reset zoom">
+            <Maximize2 size={13} />
+          </button>
+          <span className="wf-zoom-level-text">{Math.round(zoomLevel * 100)}%</span>
+        </div>
+
+        {/* Floating MiniMap Thumbnail (Bottom Right) */}
+        <div className="workflow-minimap" aria-hidden="true">
+          <div className="workflow-minimap-header">
+            <span>Graph Map</span>
+          </div>
+          <div className="workflow-minimap-grid">
+            {columns.map((col, ci) => (
+              <div key={ci} className="workflow-minimap-col">
+                {col.map((node) => (
+                  <div
+                    key={node.id}
+                    className={`workflow-minimap-dot kind-${node.kind} ${nodeApprovals[node.id]?.approved ? 'is-passed' : ''}`}
+                    title={node.label}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {activeModalNode && (
+        <div className="workflow-checkpoint-backdrop" onClick={() => setActiveModalNode(null)}>
+          <div className="workflow-checkpoint-modal" onClick={e => e.stopPropagation()}>
+            <header>
+              <div className="workflow-modal-header-text">
+                <span className={`workflow-map-kind ${activeModalNode.kind}`}>{activeModalNode.kind}</span>
+                <h3>{activeModalNode.label}</h3>
+                <p className="workflow-modal-owner">{activeModalNode.owner_group}</p>
+              </div>
+              <button type="button" className="workflow-modal-close" onClick={() => setActiveModalNode(null)} aria-label="Close checkpoint details"><X size={18} /></button>
+            </header>
+            <p className="workflow-modal-desc">{activeModalNode.detail}</p>
+            <div className="workflow-detail-meta">
+              <div>
+                <span aria-hidden="true" className="workflow-meta-icon"><ShieldCheck size={16} /></span>
+                <p>
+                  <small>Responsible reviewer</small>
+                  <strong>{activeModalNode.assignee?.name || activeModalNode.owner_group || 'Role assignment required'}</strong>
+                  {activeModalNode.assignee?.role && <small>{activeModalNode.assignee.role}{activeModalNode.assignee.is_backup ? ' · backup owner' : ''}{activeModalNode.assignee.employee_id ? ` · ID: ${activeModalNode.assignee.employee_id}` : ''}</small>}
+                </p>
+              </div>
+              <div>
+                <span aria-hidden="true" className="workflow-meta-icon"><Clock size={16} /></span>
+                <p>
+                  <small>Due date / SLA</small>
+                  <strong>{activeModalNode.sla_label || 'Set by the assigned approver'}</strong>
+                </p>
+              </div>
+            </div>
+            {(activeModalNode.owner_group === 'Legal' || (activeModalNode.label || '').toLowerCase().includes('legal') || activeModalNode.id === 'legal-review') && (
+              <div className="workflow-legal-panel" style={{ margin: '14px 0', padding: '16px', borderRadius: 10, background: 'rgba(239, 153, 118, 0.07)', border: '1px solid rgba(239, 153, 118, 0.28)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ShieldCheck size={16} style={{ color: '#ef9976' }} />
+                    <strong style={{ color: '#f5d0bc', fontSize: 13 }}>Legal Review &amp; Contract Documents (MSA &amp; SOW)</strong>
+                  </div>
+                  <span style={{ fontSize: 11, background: 'rgba(239, 153, 118, 0.2)', color: '#ef9976', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+                    Assigned: Kavita Menon (Legal ID: E010)
+                  </span>
+                </div>
+                <p style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 12 }}>
+                  All uploaded agreements are permanently stored in the database and linked to this review stage. Responsible Reviewer: <strong style={{ color: '#0f172a' }}>Kavita Menon (Legal Head · ID: E010 · kavita.menon@demo-industries.example)</strong>.
+                </p>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {[['msa', 'Master Services Agreement (MSA)'], ['sow', 'Statement of Work (SOW)']].map(([kind, title]) => {
+                    const doc = (contractDocs || []).find(d => d.kind === kind);
+                    return (
+                      <div key={kind} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                        <div>
+                          <strong style={{ fontSize: 12.5, color: '#0f172a', display: 'block' }}>{title}</strong>
+                          <small style={{ fontSize: 11, color: doc ? '#16a34a' : '#d97706', display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                            {doc ? <><CheckCircle2 size={13} /> Uploaded in Database: {doc.filename}</> : <><AlertCircle size={13} /> Not uploaded yet (Legal will request from vendor)</>}
+                          </small>
+                        </div>
+                        {doc && (
+                          <a href={`/api/sourcing/${requestId}/contract-documents/${doc.id}/download`} target="_blank" rel="noreferrer" className="p-button" style={{ fontSize: 11.5, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#ffffff', color: '#ea580c', textDecoration: 'none', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                            <FileDown size={13} /> Download
+                          </a>
                         )}
-                        {paypalPayment?.approval_url && paypalPayment?.status !== 'completed' && (
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {(activeModalNode.id === 'receipt-match' || activeModalNode.id === 'payment-release') && (
+              <div className="workflow-ml-fraud-panel">
+                <div className="workflow-ml-header">
+                  <div className="workflow-ml-header-title">
+                    <Sparkles size={16} className="workflow-sparkle-icon" />
+                    <strong>Final Invoice ML Fraud Assessment &amp; PayPal Settlement</strong>
+                  </div>
+                  <span className="workflow-ml-model-tag">Autoencoder + Isolation Forest</span>
+                </div>
+                <p className="workflow-ml-desc">
+                  Final invoice terms are evaluated by the dual deep learning &amp; isolation forest pipeline after vendor selection and multi-department approvals. Once approved, PayPal Sandbox settlement is unlocked and full evaluation details are synced to the Claims section.
+                </p>
+
+                {assessment ? (
+                  <div className={`workflow-ml-verdict-box ${assessment.is_fraud ? 'verdict-flagged' : 'verdict-clean'}`}>
+                    <div className="workflow-ml-verdict-row">
+                      <div className="workflow-verdict-badge">
+                        {assessment.is_fraud ? (
+                          <><AlertCircle size={16} /> <strong>FRAUD RISK: FLAGGED</strong></>
+                        ) : (
+                          <><CheckCircle2 size={16} /> <strong>FRAUD STATUS: CONSIDERED NOT FRAUD</strong></>
+                        )}
+                      </div>
+                      <span className="workflow-verdict-score">Anomaly Score: <strong>{(assessment.score * 100).toFixed(1)}%</strong></span>
+                    </div>
+                    <p className="workflow-verdict-label">{assessment.decision_label || (assessment.is_fraud ? 'Anomaly score exceeds policy threshold' : 'Invoice matches learned standard purchasing pattern')}</p>
+
+                    <div className="workflow-ml-metrics-grid">
+                      <div className="workflow-metric-card">
+                        <small>Autoencoder Percentile</small>
+                        <strong>{(assessment.autoencoder_percentile * 100).toFixed(1)}%</strong>
+                      </div>
+                      <div className="workflow-metric-card">
+                        <small>Isolation Forest Percentile</small>
+                        <strong>{(assessment.isolation_forest_percentile * 100).toFixed(1)}%</strong>
+                      </div>
+                      <div className="workflow-metric-card">
+                        <small>Decision Threshold</small>
+                        <strong>{((assessment.threshold || 0.85) * 100).toFixed(1)}%</strong>
+                      </div>
+                    </div>
+
+                    {assessment.basis?.length > 0 && (
+                      <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <small style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#d6d3d1', marginBottom: 6 }}>
+                          4-Pillar ML Basis Checks (Synced to Claims)
+                        </small>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                          {assessment.basis.map((b, bIdx) => (
+                            <div key={bIdx} style={{ fontSize: 12, color: '#f5f5f4', background: 'rgba(0,0,0,0.22)', padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
+                              {b}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="workflow-ml-recommendation">
+                      <strong>Model Verdict &amp; Recommendation:</strong>
+                      <span>{assessment.recommendation || (assessment.is_fraud ? 'Block payment and flag for fraud investigation.' : 'Authorized for standard disbursement.')}</span>
+                    </div>
+
+                    {/* ── PAYPAL SANDBOX SETTLEMENT PANEL (UNLOCKED ON ML APPROVAL) ── */}
+                    {!assessment.is_fraud && requestId && (
+                      <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.32)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                          <strong style={{ fontSize: 13, color: '#ecfdf5' }}>
+                            PayPal Sandbox Settlement Gate · Connected
+                          </strong>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: paypalPayment?.status === 'completed' ? 'rgba(34,197,94,0.25)' : 'rgba(239,153,118,0.2)', color: paypalPayment?.status === 'completed' ? '#86efac' : '#f5d0bc' }}>
+                            {paypalPayment?.status === 'completed'
+                              ? `PAID · Order ${paypalPayment.order_id}`
+                              : paypalPayment?.order_id
+                                ? `Order Ready · ${paypalPayment.order_id} ($${paypalPayment.amount_usd} USD)`
+                                : 'ML Approved · Ready for Checkout'}
+                          </span>
+                        </div>
+                        <p style={{ margin: '0 0 10px', fontSize: 12, color: '#d6d3d1', lineHeight: 1.45 }}>
+                          {paypalPayment?.exchange_rate_note || 'The ML model verified this invoice as legitimate. Initiate or capture the PayPal Sandbox payment below.'}
+                        </p>
+                        {paypalNotice && (
+                          <p style={{ margin: '0 0 10px', padding: '8px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', color: '#a7f3d0', fontSize: 12 }}>
+                            {paypalNotice}
+                          </p>
+                        )}
+                        {paypalPayment?.order_id && paypalPayment?.status !== 'completed' && (
+                          <div style={{ margin: '0 0 10px', padding: '9px 12px', borderRadius: 8, background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: 12, color: '#d1fae5' }}>
+                            <strong>Direct 1-Click Settlement:</strong> You do <em>not</em> need to fill in card details on PayPal's guest form. Click <strong>"Confirm / Capture Sandbox Payment"</strong> below to settle and reconcile this invoice directly.
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                          {paypalPayment?.status !== 'completed' && (
+                            <button
+                              type="button"
+                              className="p-button primary"
+                              onClick={handlePaypalDirectSettle}
+                              disabled={paypalBusy}
+                              style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+                            >
+                              {paypalBusy ? 'Settling via API…' : '1-Click Direct Settlement (Skip Login)'}
+                            </button>
+                          )}
+                          {paypalPayment?.approval_url && paypalPayment?.status !== 'completed' && (
+                            <a
+                              href={paypalPayment.approval_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-button"
+                              style={{ textDecoration: 'none' }}
+                            >
+                              Open PayPal Web Login ↗
+                            </a>
+                          )}
+                          {paypalPayment?.order_id && paypalPayment?.status !== 'completed' && (
+                            <button
+                              type="button"
+                              className="p-button"
+                              onClick={handlePaypalCapture}
+                              disabled={paypalBusy}
+                            >
+                              {paypalBusy ? 'Capturing…' : 'Capture Order'}
+                            </button>
+                          )}
                           <a
-                            href={paypalPayment.approval_url}
-                            target="_blank"
-                            rel="noreferrer"
+                            href={`/claims/${assessment.claim_id || `INV-SR-${String(requestId).padStart(4, '0')}`}`}
                             className="p-button"
                             style={{ textDecoration: 'none' }}
                           >
-                            Open PayPal Web Login ↗
+                            View Full ML Evaluation in Claims →
+                          </a>
+                        </div>
+                      </div>
+                    )}
+
+                    {evalError && <p className="workflow-ml-error" style={{ marginTop: 8 }}>{evalError}</p>}
+
+                    {requestId && (
+                      <div className="workflow-ml-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                        <button
+                          type="button"
+                          className="p-button"
+                          onClick={handleRunMlCheck}
+                          disabled={evaluating}
+                        >
+                          {evaluating ? <><RefreshCw size={12} className="workflow-spinning" /> Re-evaluating ML Model…</> : <><RefreshCw size={12} /> Re-evaluate ML Model</>}
+                        </button>
+                        {assessment.is_fraud && (
+                          <a
+                            href={`/claims/${assessment.claim_id || `INV-SR-${String(requestId).padStart(4, '0')}`}`}
+                            className="p-button"
+                            style={{ textDecoration: 'none' }}
+                          >
+                            Inspect Flagged Claim in Claims Section →
                           </a>
                         )}
-                        {paypalPayment?.order_id && paypalPayment?.status !== 'completed' && (
-                          <button
-                            type="button"
-                            className="p-button"
-                            onClick={handlePaypalCapture}
-                            disabled={paypalBusy}
-                          >
-                            {paypalBusy ? 'Capturing…' : 'Capture Order'}
-                          </button>
-                        )}
-                        <a
-                          href={`/claims/${assessment.claim_id || `INV-SR-${String(requestId).padStart(4, '0')}`}`}
-                          className="p-button"
-                          style={{ textDecoration: 'none' }}
-                        >
-                          View Full ML Evaluation in Claims →
-                        </a>
                       </div>
-                    </div>
-                  )}
-
-                  {evalError && <p className="workflow-ml-error" style={{ marginTop: 8 }}>{evalError}</p>}
-
-                  {requestId && (
-                    <div className="workflow-ml-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className="p-button"
-                        onClick={handleRunMlCheck}
-                        disabled={evaluating}
-                      >
-                        {evaluating ? <><RefreshCw size={12} className="workflow-spinning" /> Re-evaluating ML Model…</> : <><RefreshCw size={12} /> Re-evaluate ML Model</>}
-                      </button>
-                      {assessment.is_fraud && (
-                        <a
-                          href={`/claims/${assessment.claim_id || `INV-SR-${String(requestId).padStart(4, '0')}`}`}
-                          className="p-button"
-                          style={{ textDecoration: 'none' }}
-                        >
-                          Inspect Flagged Claim in Claims Section →
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="workflow-ml-pending-box">
-                  <p>
-                    {!allAuthoritiesApproved
-                      ? `🔒 Locked — All respective approval authorities (${approvedAuthorityCount}/${authorityNodes.length} approved) must approve this invoice before running the Final ML Model Check.`
-                      : 'Ready to evaluate final invoice against historical baselines and unlock PayPal Sandbox checkout.'}
-                  </p>
-                  <button
-                    type="button"
-                    className="p-button primary"
-                    onClick={handleRunMlCheck}
-                    disabled={evaluating || !requestId || !allAuthoritiesApproved}
-                    style={!allAuthoritiesApproved ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
-                  >
-                    {evaluating ? (
-                      <><RefreshCw size={14} className="workflow-spinning" /> Analyzing Invoice with ML Model…</>
-                    ) : (
-                      <><Sparkles size={14} /> Send Final Invoice to ML Model</>
                     )}
-                  </button>
-                  {evalError && <p className="workflow-ml-error">{evalError}</p>}
-                </div>
-              )}
-            </div>
-          )}
-          <div className="workflow-detail-divider" />
-          <h6>Review tasks <span>({(activeModalNode.review_tasks?.length || 1)})</span></h6>
-          <ol>
-            {(activeModalNode.review_tasks?.length ? activeModalNode.review_tasks : [{ title: 'Review this checkpoint', instructions: activeModalNode.detail }]).map((task, taskIndex) => (
-              <li key={`${activeModalNode.id}-${taskIndex}`}>
-                <span>{taskIndex + 1}</span>
-                <div>
-                  <strong>{task.title}</strong>
-                  <small>{task.instructions}</small>
-                </div>
-              </li>
-            ))}
-          </ol>
-          {nodeApprovals[activeModalNode.id]?.approved ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: 'rgba(74, 222, 128, 0.12)', border: '1px solid rgba(74, 222, 128, 0.35)', color: '#4ade80', margin: '14px 0 8px' }}>
-              <CheckCircle2 size={18} />
-              <div>
-                <strong style={{ fontSize: 13, display: 'block' }}>Checkpoint Approved</strong>
-                <small style={{ fontSize: 11.5, color: '#86efac' }}>Recorded by {nodeApprovals[activeModalNode.id].actor} on {new Date(nodeApprovals[activeModalNode.id].timestamp).toLocaleDateString()}</small>
+                  </div>
+                ) : (
+                  <div className="workflow-ml-pending-box">
+                    <p>
+                      {!allAuthoritiesApproved
+                        ? `🔒 Locked — All respective approval authorities (${approvedAuthorityCount}/${authorityNodes.length} approved) must approve this invoice before running the Final ML Model Check.`
+                        : 'Ready to evaluate final invoice against historical baselines and unlock PayPal Sandbox checkout.'}
+                    </p>
+                    <button
+                      type="button"
+                      className="p-button primary"
+                      onClick={handleRunMlCheck}
+                      disabled={evaluating || !requestId || !allAuthoritiesApproved}
+                      style={!allAuthoritiesApproved ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+                    >
+                      {evaluating ? (
+                        <><RefreshCw size={14} className="workflow-spinning" /> Analyzing Invoice with ML Model…</>
+                      ) : (
+                        <><Sparkles size={14} /> Send Final Invoice to ML Model</>
+                      )}
+                    </button>
+                    {evalError && <p className="workflow-ml-error">{evalError}</p>}
+                  </div>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="workflow-detail-actions" style={{ display: 'flex', gap: 10, margin: '14px 0 8px', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="p-button primary"
-                disabled={approvingNodeId === activeModalNode.id}
-                style={{ background: '#ef9976', color: '#14100c', fontWeight: 700, border: 'none', padding: '9px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5 }}
-                onClick={() => handleApproveCheckpoint(activeModalNode)}
-              >
-                {approvingNodeId === activeModalNode.id ? 'Approving…' : `✓ Approve Checkpoint (${activeModalNode.owner_group || 'Authority'})`}
-              </button>
-              <button
-                type="button"
-                className="p-button"
-                style={{ background: '#27221e', color: '#cfc7c2', border: '1px solid #443a33', padding: '9px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5 }}
-                onClick={() => {
-                  alert(`Information request sent to ${activeModalNode.assignee?.name || activeModalNode.owner_group} (${activeModalNode.assignee?.email || 'prepares23@gmail.com'})`);
-                }}
-              >
-                Request More Info
-              </button>
-            </div>
-          )}
-          <small className="workflow-detail-footnote" style={{ color: '#a8a29e', fontSize: 11, display: 'block', marginTop: 6 }}>
-            Responsible reviewer: <strong style={{ color: '#ef9976' }}>{activeModalNode.assignee?.name || activeModalNode.owner_group || 'Authorized Reviewer'}</strong> (Authorizer ID: {activeModalNode.assignee?.employee_id || 'E010'} · prepares23@gmail.com)
-          </small>
+            )}
+            <div className="workflow-detail-divider" />
+            <h6>Review tasks <span>({(activeModalNode.review_tasks?.length || 1)})</span></h6>
+            <ol>
+              {(activeModalNode.review_tasks?.length ? activeModalNode.review_tasks : [{ title: 'Review this checkpoint', instructions: activeModalNode.detail }]).map((task, taskIndex) => (
+                <li key={`${activeModalNode.id}-${taskIndex}`}>
+                  <span>{taskIndex + 1}</span>
+                  <div>
+                    <strong>{task.title}</strong>
+                    <small>{task.instructions}</small>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {nodeApprovals[activeModalNode.id]?.approved ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: 'rgba(74, 222, 128, 0.12)', border: '1px solid rgba(74, 222, 128, 0.35)', color: '#4ade80', margin: '14px 0 8px' }}>
+                <CheckCircle2 size={18} />
+                <div>
+                  <strong style={{ fontSize: 13, display: 'block' }}>Checkpoint Approved</strong>
+                  <small style={{ fontSize: 11.5, color: '#86efac' }}>Recorded by {nodeApprovals[activeModalNode.id].actor} on {new Date(nodeApprovals[activeModalNode.id].timestamp).toLocaleDateString()}</small>
+                </div>
+              </div>
+            ) : (
+              <div className="workflow-detail-actions" style={{ display: 'flex', gap: 10, margin: '14px 0 8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="p-button primary"
+                  disabled={approvingNodeId === activeModalNode.id}
+                  style={{ background: '#ef9976', color: '#14100c', fontWeight: 700, border: 'none', padding: '9px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5 }}
+                  onClick={() => handleApproveCheckpoint(activeModalNode)}
+                >
+                  {approvingNodeId === activeModalNode.id ? 'Approving…' : `✓ Approve Checkpoint (${activeModalNode.owner_group || 'Authority'})`}
+                </button>
+                <button
+                  type="button"
+                  className="p-button"
+                  style={{ background: '#27221e', color: '#cfc7c2', border: '1px solid #443a33', padding: '9px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5 }}
+                  onClick={() => {
+                    alert(`Information request sent to ${activeModalNode.assignee?.name || activeModalNode.owner_group} (${activeModalNode.assignee?.email || 'prepares23@gmail.com'})`);
+                  }}
+                >
+                  Request More Info
+                </button>
+              </div>
+            )}
+            <small className="workflow-detail-footnote" style={{ color: '#a8a29e', fontSize: 11, display: 'block', marginTop: 6 }}>
+              Responsible reviewer: <strong style={{ color: '#ef9976' }}>{activeModalNode.assignee?.name || activeModalNode.owner_group || 'Authorized Reviewer'}</strong> (Authorizer ID: {activeModalNode.assignee?.employee_id || 'E010'} · prepares23@gmail.com)
+            </small>
+          </div>
         </div>
-      </div>
-    )}
-  </div>
+      )}
+    </div>
   );
 }
 function IntakeChat({ row, busy, onSend, error, openSignal, privacyHelp }) {
@@ -1899,22 +1899,22 @@ export function SourcingAgentReview({ run, selected, setSelected, busy, onSend, 
     )}
 
     {/* ── VENDOR SEARCH & FILTER BAR (REPLACES OLD TOOLBAR) ───────────── */}
-    <div className="cv-vendor-search-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', padding: '16px 24px', background: '#241f1c', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-      <div style={{ position: 'relative', flex: '1 1 340px', maxWidth: '560px', display: 'flex', alignItems: 'center' }}>
-        <Search size={16} style={{ position: 'absolute', left: '14px', color: '#a8a29e', pointerEvents: 'none' }} />
+    <div className="cv-vendor-search-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', padding: '16px 24px', background: '#ffffff', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
+      <div style={{ position: 'relative', flex: '1 1 340px', maxWidth: '580px', display: 'flex', alignItems: 'center' }}>
+        <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
         <input
           type="search"
           aria-label="Search specific vendor"
           placeholder="Search vendor by name, email, status, or price to view or record progress..."
           value={vendorFilter}
           onChange={e => setVendorFilter(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px 10px 40px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '13px', outline: 'none' }}
+          style={{ width: '100%', padding: '11px 16px 11px 44px', borderRadius: '10px', border: '1.5px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '13px', outline: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}
         />
         {vendorFilter && (
           <button
             type="button"
             onClick={() => setVendorFilter('')}
-            style={{ position: 'absolute', right: '10px', background: 'transparent', border: 'none', color: '#a8a29e', fontSize: '12px', cursor: 'pointer', padding: '2px 6px' }}
+            style={{ position: 'absolute', right: '12px', background: 'transparent', border: 'none', color: '#64748b', fontSize: '12px', cursor: 'pointer', padding: '2px 6px', fontWeight: 600 }}
           >
             Clear
           </button>
@@ -1923,7 +1923,7 @@ export function SourcingAgentReview({ run, selected, setSelected, busy, onSend, 
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
         {vendorFilter && (
-          <span style={{ fontSize: '12px', color: '#a8a29e', marginRight: '4px' }}>
+          <span style={{ fontSize: '12px', color: '#64748b', marginRight: '4px' }}>
             Showing {filteredVendors.length} of {run.vendors.length} suppliers
           </span>
         )}
@@ -2933,51 +2933,51 @@ export default function PurchaseIntake({ close, Modal, requestId, initialStep, o
     const next = Math.min(3, step + 1);
     await action(async () => { await saveSnapshot(false, next); setStep(next); });
   };
-    const regenerateWorkflow = async () => { const workflow = await createWorkflow(); if (workflow) setStatus(workflow.source === 'gemini' ? 'Gemini generated an updated route.' : 'AI-tailored compliance workflow updated.'); };
-    const uploadContract = async kind => { const file = contractFiles[kind]; if (!file || !row) return; await action(async () => { const { data } = await sourcingApi.uploadContractDocument(row.id, kind, file); setContractDocs(docs => [...docs.filter(d => d.kind !== kind), data]); setContractFiles(files => ({ ...files, [kind]: null })); setStatus(`${kind.toUpperCase()} uploaded and stored with this request.`); }); };
-    const sendChat = async message => { setBusy(true); setError(''); setChatError(''); try { await persist(); const { data } = await sourcingApi.message(rowRef.current.id, message, rowRef.current.version); adopt(data); return true; } catch (e) { const messageText = errorText(e); setError(messageText); setChatError(messageText); return false; } finally { setBusy(false); } };
-    return <><Modal title="Request a purchase" close={closeIntake} busy={busy} wide fullscreen><div className="p-stepper intake-fullscreen-marker"><span className={step === 0 ? 'current' : step > 0 ? 'complete' : ''}><b>1</b>Purchase details</span><span className={step === 1 ? 'current' : step > 1 ? 'complete' : ''}><b>2</b>Data information</span><span className={step === 2 ? 'current' : step > 2 ? 'complete' : ''}><b>3</b>Approval Map & Sourcing</span><span className={step === 3 ? 'current' : ''}><b>4</b>Review & Submit</span>{row && <button type="button" className="p-button cv-intake-audit-btn" onClick={() => setShowAuditModal(true)} title="View immutable chronological audit time log trail" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}><Clock size={13} /><span>Audit Time Log</span></button>}</div><section className="p-intake-main"><section className="p-dialog-body">
-      {error && <p className="p-notice p-danger" role="alert">{error}</p>}{!row ? <div className="intake-loading">Loading purchase request…</div> : <>
-        {step === 0 && <>
-          <h3>How much budget will you need for this purchase? <b>*</b></h3>
-          <div className="intake-budget"><select aria-label="Currency" value={currency} onChange={e => change('currency', e.target.value)}>{CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}</select><span>{symbol}</span><input data-required-field="budget" aria-label="Purchase budget" aria-required="true" type="text" inputMode="decimal" value={draft.budget || ''} placeholder="Enter budget" onChange={e => change('budget', e.target.value.replace(/[^0-9.]/g, ''))} /></div>
+  const regenerateWorkflow = async () => { const workflow = await createWorkflow(); if (workflow) setStatus(workflow.source === 'gemini' ? 'Gemini generated an updated route.' : 'AI-tailored compliance workflow updated.'); };
+  const uploadContract = async kind => { const file = contractFiles[kind]; if (!file || !row) return; await action(async () => { const { data } = await sourcingApi.uploadContractDocument(row.id, kind, file); setContractDocs(docs => [...docs.filter(d => d.kind !== kind), data]); setContractFiles(files => ({ ...files, [kind]: null })); setStatus(`${kind.toUpperCase()} uploaded and stored with this request.`); }); };
+  const sendChat = async message => { setBusy(true); setError(''); setChatError(''); try { await persist(); const { data } = await sourcingApi.message(rowRef.current.id, message, rowRef.current.version); adopt(data); return true; } catch (e) { const messageText = errorText(e); setError(messageText); setChatError(messageText); return false; } finally { setBusy(false); } };
+  return <><Modal title="Request a purchase" close={closeIntake} busy={busy} wide fullscreen><div className="p-stepper intake-fullscreen-marker"><span className={step === 0 ? 'current' : step > 0 ? 'complete' : ''}><b>1</b>Purchase details</span><span className={step === 1 ? 'current' : step > 1 ? 'complete' : ''}><b>2</b>Data information</span><span className={step === 2 ? 'current' : step > 2 ? 'complete' : ''}><b>3</b>Approval Map & Sourcing</span><span className={step === 3 ? 'current' : ''}><b>4</b>Review & Submit</span>{row && <button type="button" className="p-button cv-intake-audit-btn" onClick={() => setShowAuditModal(true)} title="View immutable chronological audit time log trail" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}><Clock size={13} /><span>Audit Time Log</span></button>}</div><section className="p-intake-main"><section className="p-dialog-body">
+    {error && <p className="p-notice p-danger" role="alert">{error}</p>}{!row ? <div className="intake-loading">Loading purchase request…</div> : <>
+      {step === 0 && <>
+        <h3>How much budget will you need for this purchase? <b>*</b></h3>
+        <div className="intake-budget"><select aria-label="Currency" value={currency} onChange={e => change('currency', e.target.value)}>{CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}</select><span>{symbol}</span><input data-required-field="budget" aria-label="Purchase budget" aria-required="true" type="text" inputMode="decimal" value={draft.budget || ''} placeholder="Enter budget" onChange={e => change('budget', e.target.value.replace(/[^0-9.]/g, ''))} /></div>
 
-          <h3 className="intake-form-heading">Please enter the line item breakdown: <b>*</b></h3>
-          {items.map((item, index) => {
-            const service = item.line_type === 'Service'; const categories = service ? SERVICE_CATEGORIES : GOODS_CATEGORIES; return <article className="intake-line screenshot-line" key={index}>
-              <div className="intake-line-head"><strong>Line {index + 1}</strong><span>Line total&nbsp; {money(lineTotal(item))}</span>{items.length > 1 && <button className="p-icon" type="button" aria-label={`Remove line ${index + 1}`} onClick={() => { const next = itemsRef.current.filter((_, i) => i !== index); itemsRef.current = next; setItems(next); setDirty(true); setStatus('Unsaved changes'); }}><Trash2 size={15} /></button>}</div>
-              <div className="p-form-grid intake-description-grid"><label className="p-field intake-wide-field"><span>Description <b>*</b></span><input data-required-field={`line-${index}-description`} aria-required="true" value={item.description || ''} onChange={e => changeLine(index, 'description', e.target.value)} /></label><label className="p-field"><span>Line type <b>*</b></span><select data-required-field={`line-${index}-type`} aria-required="true" value={item.line_type || 'Item'} onChange={e => { const type = e.target.value; changeLine(index, 'line_type', type); changeLine(index, 'item_category', ''); changeLine(index, 'purchasing_method', type === 'Service' ? 'Quote request (RFQ)' : 'Catalog buying'); changeLine(index, 'verification_method', type === 'Service' ? 'Service acceptance / sign-off' : 'Goods receipt'); change('purchase_type', type === 'Service' ? 'Services' : 'Goods'); change('category', ''); }}><option>Item</option><option>Service</option></select></label></div>
-              <div className="p-form-grid"><label className="p-field"><span>{service ? 'Quantity (service units)' : 'Quantity (Each)'} <b>*</b></span><input data-required-field={`line-${index}-quantity`} aria-required="true" type="number" min="1" step="1" value={item.quantity ?? 1} onChange={e => changeLine(index, 'quantity', e.target.value)} /></label><label className="p-field"><span>{service ? 'Rate / amount' : 'Amount'} <b>*</b></span><div className="intake-amount"><span>{currency}</span><input data-required-field={`line-${index}-amount`} aria-required="true" type="text" inputMode="decimal" value={item.unit_price ?? ''} placeholder="0.00" onChange={e => changeLine(index, 'unit_price', e.target.value.replace(/[^0-9.]/g, ''))} /></div></label></div>
-              <div className="p-form-grid"><label className="p-field"><span>{service ? 'Service category' : 'Goods category'} <b>*</b></span><select data-required-field={`line-${index}-category`} aria-required="true" value={item.item_category || ''} onChange={e => { changeLine(index, 'item_category', e.target.value); if (index === 0) change('category', e.target.value); }}><option value="">Select {service ? 'service' : 'goods'} category</option>{categories.map(category => <option key={category}>{category}</option>)}</select></label><label className="p-field"><span>Department <b>*</b></span><select data-required-field={`line-${index}-department`} aria-required="true" value={item.department || ''} onChange={e => changeLine(index, 'department', e.target.value)}><option value="">Select department</option><option>Sales</option><option>Finance</option><option>Manager</option><option>IT</option><option>Operations</option></select></label></div>
-              <div className="p-form-grid"><label className="p-field"><span>How is it usually bought? <b>*</b></span><select data-required-field={`line-${index}-buying-method`} aria-required="true" value={item.purchasing_method || ''} onChange={e => changeLine(index, 'purchasing_method', e.target.value)}><option value="">Select buying method</option>{BUYING_METHODS.map(method => <option key={method}>{method}</option>)}</select><small>{methodHelp(item.purchasing_method)}</small></label><label className="p-field"><span>How will delivery be verified? <b>*</b></span><select data-required-field={`line-${index}-verification`} aria-required="true" value={item.verification_method || ''} onChange={e => changeLine(index, 'verification_method', e.target.value)}><option value="">Select verification method</option>{(service ? SERVICE_CHECKS : ['Goods receipt (physical count)']).map(method => <option key={method}>{method}</option>)}</select></label></div>
-              {service && <><div className="p-form-grid"><label className="p-field"><span>Service unit <b>*</b></span><select data-required-field={`line-${index}-service-unit`} aria-required="true" value={item.service_unit || ''} onChange={e => changeLine(index, 'service_unit', e.target.value)}><option value="">Select unit</option>{SERVICE_UNITS.map(unit => <option key={unit}>{unit}</option>)}</select></label><label className="p-field"><span>Service level / SLA <b>*</b></span><input data-required-field={`line-${index}-service-level`} aria-required="true" value={item.service_level || ''} placeholder="Describe the required service level" onChange={e => changeLine(index, 'service_level', e.target.value)} /></label></div><label className="p-field"><span>Who signs off that the service was delivered? <b>*</b></span><input data-required-field={`line-${index}-acceptance-owner`} aria-required="true" value={item.acceptance_owner || ''} placeholder="Role or person responsible" onChange={e => changeLine(index, 'acceptance_owner', e.target.value)} /></label><p className="intake-match-note">Service matching checks the PO, service acceptance or sign-off, and invoice.</p></>}
-              {!service && <p className="intake-match-note">Goods matching checks the PO, physical goods receipt, and invoice.</p>}
-              <div className="p-form-grid"><label className="p-field"><span>Project</span><select value={item.project || ''} onChange={e => changeLine(index, 'project', e.target.value)}><option value="">Select project</option><option>Project X (Enterprise Infrastructure)</option><option>Project Alpha (AI Procurement Automation)</option><option>Project Phoenix (Cloud Migration)</option><option>Project Horizon (Operations &amp; Logistics)</option><option>Project Titan (Security &amp; Compliance)</option><option>Internal Operations / Overhead</option><option>Marketing &amp; Brand Expansion</option></select></label><label className="p-field"><span>Location <b>*</b></span><select data-required-field={`line-${index}-location`} aria-required="true" value={item.location || ''} onChange={e => changeLine(index, 'location', e.target.value)}><option value="">Select location</option><option>San Francisco - US</option><option>New York - US</option><option>London - UK</option><option>Bengaluru - IN</option><option>Singapore - SG</option><option>Frankfurt - DE</option><option>Tokyo - JP</option><option>Remote / Distributed</option></select></label></div>
-            </article>;
-          })}
-          <button data-required-field="add-line" className="p-link intake-add-line" type="button" onClick={() => { const next = [...itemsRef.current, blankItem()]; itemsRef.current = next; setDirty(true); setStatus('Unsaved changes'); }}><Plus size={16} /> Add line item</button>
-          <div className="intake-line-total"><span>Line item total ({items.length})</span><strong>{money(total)}</strong></div>
-          {budgetExceeded && <p data-required-field="budget-total" className="intake-budget-error" role="alert">Line item total exceeds the spending budget by {money(total - Number(draft.budget))}.</p>}
+        <h3 className="intake-form-heading">Please enter the line item breakdown: <b>*</b></h3>
+        {items.map((item, index) => {
+          const service = item.line_type === 'Service'; const categories = service ? SERVICE_CATEGORIES : GOODS_CATEGORIES; return <article className="intake-line screenshot-line" key={index}>
+            <div className="intake-line-head"><strong>Line {index + 1}</strong><span>Line total&nbsp; {money(lineTotal(item))}</span>{items.length > 1 && <button className="p-icon" type="button" aria-label={`Remove line ${index + 1}`} onClick={() => { const next = itemsRef.current.filter((_, i) => i !== index); itemsRef.current = next; setItems(next); setDirty(true); setStatus('Unsaved changes'); }}><Trash2 size={15} /></button>}</div>
+            <div className="p-form-grid intake-description-grid"><label className="p-field intake-wide-field"><span>Description <b>*</b></span><input data-required-field={`line-${index}-description`} aria-required="true" value={item.description || ''} onChange={e => changeLine(index, 'description', e.target.value)} /></label><label className="p-field"><span>Line type <b>*</b></span><select data-required-field={`line-${index}-type`} aria-required="true" value={item.line_type || 'Item'} onChange={e => { const type = e.target.value; changeLine(index, 'line_type', type); changeLine(index, 'item_category', ''); changeLine(index, 'purchasing_method', type === 'Service' ? 'Quote request (RFQ)' : 'Catalog buying'); changeLine(index, 'verification_method', type === 'Service' ? 'Service acceptance / sign-off' : 'Goods receipt'); change('purchase_type', type === 'Service' ? 'Services' : 'Goods'); change('category', ''); }}><option>Item</option><option>Service</option></select></label></div>
+            <div className="p-form-grid"><label className="p-field"><span>{service ? 'Quantity (service units)' : 'Quantity (Each)'} <b>*</b></span><input data-required-field={`line-${index}-quantity`} aria-required="true" type="number" min="1" step="1" value={item.quantity ?? 1} onChange={e => changeLine(index, 'quantity', e.target.value)} /></label><label className="p-field"><span>{service ? 'Rate / amount' : 'Amount'} <b>*</b></span><div className="intake-amount"><span>{currency}</span><input data-required-field={`line-${index}-amount`} aria-required="true" type="text" inputMode="decimal" value={item.unit_price ?? ''} placeholder="0.00" onChange={e => changeLine(index, 'unit_price', e.target.value.replace(/[^0-9.]/g, ''))} /></div></label></div>
+            <div className="p-form-grid"><label className="p-field"><span>{service ? 'Service category' : 'Goods category'} <b>*</b></span><select data-required-field={`line-${index}-category`} aria-required="true" value={item.item_category || ''} onChange={e => { changeLine(index, 'item_category', e.target.value); if (index === 0) change('category', e.target.value); }}><option value="">Select {service ? 'service' : 'goods'} category</option>{categories.map(category => <option key={category}>{category}</option>)}</select></label><label className="p-field"><span>Department <b>*</b></span><select data-required-field={`line-${index}-department`} aria-required="true" value={item.department || ''} onChange={e => changeLine(index, 'department', e.target.value)}><option value="">Select department</option><option>Sales</option><option>Finance</option><option>Manager</option><option>IT</option><option>Operations</option></select></label></div>
+            <div className="p-form-grid"><label className="p-field"><span>How is it usually bought? <b>*</b></span><select data-required-field={`line-${index}-buying-method`} aria-required="true" value={item.purchasing_method || ''} onChange={e => changeLine(index, 'purchasing_method', e.target.value)}><option value="">Select buying method</option>{BUYING_METHODS.map(method => <option key={method}>{method}</option>)}</select><small>{methodHelp(item.purchasing_method)}</small></label><label className="p-field"><span>How will delivery be verified? <b>*</b></span><select data-required-field={`line-${index}-verification`} aria-required="true" value={item.verification_method || ''} onChange={e => changeLine(index, 'verification_method', e.target.value)}><option value="">Select verification method</option>{(service ? SERVICE_CHECKS : ['Goods receipt (physical count)']).map(method => <option key={method}>{method}</option>)}</select></label></div>
+            {service && <><div className="p-form-grid"><label className="p-field"><span>Service unit <b>*</b></span><select data-required-field={`line-${index}-service-unit`} aria-required="true" value={item.service_unit || ''} onChange={e => changeLine(index, 'service_unit', e.target.value)}><option value="">Select unit</option>{SERVICE_UNITS.map(unit => <option key={unit}>{unit}</option>)}</select></label><label className="p-field"><span>Service level / SLA <b>*</b></span><input data-required-field={`line-${index}-service-level`} aria-required="true" value={item.service_level || ''} placeholder="Describe the required service level" onChange={e => changeLine(index, 'service_level', e.target.value)} /></label></div><label className="p-field"><span>Who signs off that the service was delivered? <b>*</b></span><input data-required-field={`line-${index}-acceptance-owner`} aria-required="true" value={item.acceptance_owner || ''} placeholder="Role or person responsible" onChange={e => changeLine(index, 'acceptance_owner', e.target.value)} /></label><p className="intake-match-note">Service matching checks the PO, service acceptance or sign-off, and invoice.</p></>}
+            {!service && <p className="intake-match-note">Goods matching checks the PO, physical goods receipt, and invoice.</p>}
+            <div className="p-form-grid"><label className="p-field"><span>Project</span><select value={item.project || ''} onChange={e => changeLine(index, 'project', e.target.value)}><option value="">Select project</option><option>Project X (Enterprise Infrastructure)</option><option>Project Alpha (AI Procurement Automation)</option><option>Project Phoenix (Cloud Migration)</option><option>Project Horizon (Operations &amp; Logistics)</option><option>Project Titan (Security &amp; Compliance)</option><option>Internal Operations / Overhead</option><option>Marketing &amp; Brand Expansion</option></select></label><label className="p-field"><span>Location <b>*</b></span><select data-required-field={`line-${index}-location`} aria-required="true" value={item.location || ''} onChange={e => changeLine(index, 'location', e.target.value)}><option value="">Select location</option><option>San Francisco - US</option><option>New York - US</option><option>London - UK</option><option>Bengaluru - IN</option><option>Singapore - SG</option><option>Frankfurt - DE</option><option>Tokyo - JP</option><option>Remote / Distributed</option></select></label></div>
+          </article>;
+        })}
+        <button data-required-field="add-line" className="p-link intake-add-line" type="button" onClick={() => { const next = [...itemsRef.current, blankItem()]; itemsRef.current = next; setDirty(true); setStatus('Unsaved changes'); }}><Plus size={16} /> Add line item</button>
+        <div className="intake-line-total"><span>Line item total ({items.length})</span><strong>{money(total)}</strong></div>
+        {budgetExceeded && <p data-required-field="budget-total" className="intake-budget-error" role="alert">Line item total exceeds the spending budget by {money(total - Number(draft.budget))}.</p>}
 
-          <label className="p-field intake-select-field"><span>What are you looking to purchase? <b>*</b></span><select data-required-field="purchase-type" aria-required="true" value={draft.purchase_type || 'Goods'} onChange={e => { change('purchase_type', e.target.value); change('category', ''); }}><option>Goods</option><option>Services</option><option>Software</option></select></label>
-          <label className="p-field intake-select-field"><span>Which detailed category best describes your purchase? <b>*</b></span><select data-required-field="category" aria-required="true" value={draft.category || ''} onChange={e => change('category', e.target.value)}><option value="">Select a category</option>{categoryOptions(draft.purchase_type || 'Goods').map(category => <option key={category}>{category}</option>)}</select></label>
+        <label className="p-field intake-select-field"><span>What are you looking to purchase? <b>*</b></span><select data-required-field="purchase-type" aria-required="true" value={draft.purchase_type || 'Goods'} onChange={e => { change('purchase_type', e.target.value); change('category', ''); }}><option>Goods</option><option>Services</option><option>Software</option></select></label>
+        <label className="p-field intake-select-field"><span>Which detailed category best describes your purchase? <b>*</b></span><select data-required-field="category" aria-required="true" value={draft.category || ''} onChange={e => change('category', e.target.value)}><option value="">Select a category</option>{categoryOptions(draft.purchase_type || 'Goods').map(category => <option key={category}>{category}</option>)}</select></label>
 
-          <section className="intake-vendor-section"><strong>Vendor choice</strong><p>Let the AI recommend a vendor, or mark one supplier as your preference. A preference is a hint, not a restriction.</p><label className="intake-agent-choice"><input type="checkbox" checked={draft.ai_selects_vendor !== false} onChange={e => change('ai_selects_vendor', e.target.checked)} /><span>Ask the AI to recommend a vendor</span></label><p className="intake-vendor-hint">Optional preferred vendor</p><div className="intake-vendor-list">{VENDORS.map(vendor => <div className={`intake-vendor-row ${draft.preferred_vendors === vendor ? 'selected' : ''}`} key={vendor}><span className="intake-vendor-mark" aria-hidden="true">{vendor.slice(0, 1)}</span><span>{vendor}</span><button type="button" className="p-button primary" aria-pressed={draft.preferred_vendors === vendor} onClick={() => { const chosen = draft.preferred_vendors === vendor ? '' : vendor; change('preferred_vendors', chosen); change('vendor_preference', chosen ? 'prioritize' : ''); }}>{draft.preferred_vendors === vendor ? 'Selected' : 'Choose'}</button></div>)}</div><small>These four names are examples. A real vendor recommendation needs approved company supplier offers; the AI can suggest a better fit when that data is available.</small></section>
+        <section className="intake-vendor-section"><strong>Vendor choice</strong><p>Let the AI recommend a vendor, or mark one supplier as your preference. A preference is a hint, not a restriction.</p><label className="intake-agent-choice"><input type="checkbox" checked={draft.ai_selects_vendor !== false} onChange={e => change('ai_selects_vendor', e.target.checked)} /><span>Ask the AI to recommend a vendor</span></label><p className="intake-vendor-hint">Optional preferred vendor</p><div className="intake-vendor-list">{VENDORS.map(vendor => <div className={`intake-vendor-row ${draft.preferred_vendors === vendor ? 'selected' : ''}`} key={vendor}><span className="intake-vendor-mark" aria-hidden="true">{vendor.slice(0, 1)}</span><span>{vendor}</span><button type="button" className="p-button primary" aria-pressed={draft.preferred_vendors === vendor} onClick={() => { const chosen = draft.preferred_vendors === vendor ? '' : vendor; change('preferred_vendors', chosen); change('vendor_preference', chosen ? 'prioritize' : ''); }}>{draft.preferred_vendors === vendor ? 'Selected' : 'Choose'}</button></div>)}</div><small>These four names are examples. A real vendor recommendation needs approved company supplier offers; the AI can suggest a better fit when that data is available.</small></section>
 
-          <h3 className="intake-contract-heading">What is the desired start and end date for this purchase/contract? <b>*</b></h3><label className="p-field intake-dates"><span>Contract dates <b>*</b></span><div><input data-required-field="contract-start" aria-required="true" aria-label="Purchase contract start date" type="date" value={draft.contract_start || ''} onChange={e => change('contract_start', e.target.value)} /><span>→</span><input data-required-field="contract-end" aria-required="true" aria-label="Purchase contract end date" type="date" value={draft.contract_end || ''} onChange={e => change('contract_end', e.target.value)} /></div></label>
+        <h3 className="intake-contract-heading">What is the desired start and end date for this purchase/contract? <b>*</b></h3><label className="p-field intake-dates"><span>Contract dates <b>*</b></span><div><input data-required-field="contract-start" aria-required="true" aria-label="Purchase contract start date" type="date" value={draft.contract_start || ''} onChange={e => change('contract_start', e.target.value)} /><span>→</span><input data-required-field="contract-end" aria-required="true" aria-label="Purchase contract end date" type="date" value={draft.contract_end || ''} onChange={e => change('contract_end', e.target.value)} /></div></label>
 
-          <fieldset data-required-field="payment-terms" className="intake-payment"><legend>Please select the payment terms of this contract: <b>*</b></legend>{PAYMENT_TERMS.map(term => <label key={term}><input aria-required="true" type="radio" name="payment_terms" checked={draft.payment_terms === term} onChange={() => change('payment_terms', term)} /><span>{term}</span></label>)}</fieldset>
-        </>}
-        {step === 1 && <section className="intake-data-information"><h3>Data Information</h3><p>Will any personal data be shared for this engagement? For example, customer emails, names, user activity, etc. <b>*</b></p><p className="p-muted">Please see the attached data policy for detailed descriptions and definitions.</p><div className="intake-policy-links"><a href="/sample-vendor-data-sharing-policy.pdf" target="_blank" rel="noreferrer">Data Access Policy ↗</a><a href="/sample-vendor-data-sharing-policy.pdf" download>Download attachment ↓</a><small>Demonstration sample only; not an approved company policy.</small></div><fieldset data-required-field="privacy-choice" className="intake-data-choice"><legend>Will personal data be shared with this supplier? <b>*</b></legend>{[['yes', 'Yes', 'Select this if personal data will be shared with the vendor.'], ['no', 'No', 'Select this if no personal data will be shared with the vendor.'], ['unknown', "I don't know", 'Select this option if you are unsure.']].map(([value, title, help]) => <label key={value}><input type="radio" aria-required="true" name="shares_personal_data" checked={draft.data_sharing_choice === value} onChange={() => { const next = { ...draftRef.current, data_sharing_choice: value, shares_personal_data: value === 'yes' ? true : value === 'no' ? false : null, ...(value === 'no' ? { data_types: [], data_usage: null } : {}) }; draftRef.current = next; setDraft(next); setPrivacyHelp(value === 'unknown'); if (value === 'unknown') setAssistantOpenSignal(n => n + 1); setDirty(true); setStatus('Unsaved changes'); }} /><span><strong>{title}</strong><small>{help}</small></span></label>)}</fieldset>{draft.shares_personal_data === true && <><fieldset data-required-field="data-types" className="intake-data-types"><legend>What type of data/information will be shared? <b>*</b></legend>{DATA_TYPES.map(type => <label key={type}><input type="checkbox" aria-required="true" checked={(draft.data_types || []).includes(type)} onChange={() => { const values = draft.data_types || []; change('data_types', values.includes(type) ? values.filter(v => v !== type) : [...values, type]); }} /><span>{type}</span></label>)}</fieldset><label className="p-field"><span>How will this vendor use this data? <b>*</b></span><textarea data-required-field="data-usage" aria-required="true" maxLength={2000} value={draft.data_usage || ''} onChange={e => change('data_usage', e.target.value)} placeholder="Describe the purpose for sharing this data." /></label></>}</section>}
-        {step === 2 && <section className="intake-workflow"><div className="intake-workflow-heading"><div><h3>Workflow for this purchase</h3><p>This approval map is tailored to the selected goods or services and data-sharing answers. Each card is a proposed checkpoint for human review.</p></div><button className="p-button" type="button" onClick={regenerateWorkflow} disabled={busy || !row}><RefreshCw size={14} className={busy ? 'workflow-spinning' : ''} />{busy ? 'Generating…' : 'Regenerate map'}</button></div>{workflowResult?.graph ? <><h4 className="intake-workflow-title">{workflowResult.graph.title}</h4><p className="intake-workflow-summary">{workflowResult.graph.summary}</p><WorkflowMindMap workflow={workflowResult.graph} fullWorkflow={workflowResult || row?.workspace?.workflow} requestId={row?.id} assessment={row?.workspace?.workflow?.final_invoice_assessment || workflowResult?.final_invoice_assessment} initialPaypal={row?.workspace?.workflow?.paypal_payment || workflowResult?.paypal_payment} contractDocs={contractDocs} /></> : <div className="intake-workflow-loading" role="status">Creating the purchase-specific approval map…</div>}{plan.hasService && <section className="intake-contract-docs"><h4>Service contract documents</h4><p>MSA and SOW checks apply to service engagements. Upload the documents you already have; missing items are flagged for Legal review.</p>{[['msa', 'Master Services Agreement (MSA)'], ['sow', 'Statement of Work (SOW)']].map(([kind, title]) => { const doc = contractDocs.find(d => d.kind === kind); return <div className="intake-contract-document" key={kind}><div><strong>{title}</strong><small>{doc ? <><CheckCircle2 size={14} /> Uploaded: {doc.filename}</> : <><AlertCircle size={14} /> {contractFiles[kind]?.name || 'Not provided yet'}</>}</small></div><label className="p-button"><Upload size={14} /> Choose PDF/DOCX<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e => setContractFiles(files => ({ ...files, [kind]: e.target.files?.[0] || null }))} /></label><button type="button" className="p-button primary" disabled={!contractFiles[kind] || busy} onClick={() => uploadContract(kind)}>{busy ? 'Uploading…' : 'Upload'}</button></div> })}<p className="intake-contract-note">Uploads are stored as supporting evidence. The system does not decide that a contract is legally sufficient; Legal must review it.</p></section>}
+        <fieldset data-required-field="payment-terms" className="intake-payment"><legend>Please select the payment terms of this contract: <b>*</b></legend>{PAYMENT_TERMS.map(term => <label key={term}><input aria-required="true" type="radio" name="payment_terms" checked={draft.payment_terms === term} onChange={() => change('payment_terms', term)} /><span>{term}</span></label>)}</fieldset>
+      </>}
+      {step === 1 && <section className="intake-data-information"><h3>Data Information</h3><p>Will any personal data be shared for this engagement? For example, customer emails, names, user activity, etc. <b>*</b></p><p className="p-muted">Please see the attached data policy for detailed descriptions and definitions.</p><div className="intake-policy-links"><a href="/sample-vendor-data-sharing-policy.pdf" target="_blank" rel="noreferrer">Data Access Policy ↗</a><a href="/sample-vendor-data-sharing-policy.pdf" download>Download attachment ↓</a><small>Demonstration sample only; not an approved company policy.</small></div><fieldset data-required-field="privacy-choice" className="intake-data-choice"><legend>Will personal data be shared with this supplier? <b>*</b></legend>{[['yes', 'Yes', 'Select this if personal data will be shared with the vendor.'], ['no', 'No', 'Select this if no personal data will be shared with the vendor.'], ['unknown', "I don't know", 'Select this option if you are unsure.']].map(([value, title, help]) => <label key={value}><input type="radio" aria-required="true" name="shares_personal_data" checked={draft.data_sharing_choice === value} onChange={() => { const next = { ...draftRef.current, data_sharing_choice: value, shares_personal_data: value === 'yes' ? true : value === 'no' ? false : null, ...(value === 'no' ? { data_types: [], data_usage: null } : {}) }; draftRef.current = next; setDraft(next); setPrivacyHelp(value === 'unknown'); if (value === 'unknown') setAssistantOpenSignal(n => n + 1); setDirty(true); setStatus('Unsaved changes'); }} /><span><strong>{title}</strong><small>{help}</small></span></label>)}</fieldset>{draft.shares_personal_data === true && <><fieldset data-required-field="data-types" className="intake-data-types"><legend>What type of data/information will be shared? <b>*</b></legend>{DATA_TYPES.map(type => <label key={type}><input type="checkbox" aria-required="true" checked={(draft.data_types || []).includes(type)} onChange={() => { const values = draft.data_types || []; change('data_types', values.includes(type) ? values.filter(v => v !== type) : [...values, type]); }} /><span>{type}</span></label>)}</fieldset><label className="p-field"><span>How will this vendor use this data? <b>*</b></span><textarea data-required-field="data-usage" aria-required="true" maxLength={2000} value={draft.data_usage || ''} onChange={e => change('data_usage', e.target.value)} placeholder="Describe the purpose for sharing this data." /></label></>}</section>}
+      {step === 2 && <section className="intake-workflow"><div className="intake-workflow-heading"><div><h3>Workflow for this purchase</h3><p>This approval map is tailored to the selected goods or services and data-sharing answers. Each card is a proposed checkpoint for human review.</p></div><button className="p-button" type="button" onClick={regenerateWorkflow} disabled={busy || !row}><RefreshCw size={14} className={busy ? 'workflow-spinning' : ''} />{busy ? 'Generating…' : 'Regenerate map'}</button></div>{workflowResult?.graph ? <><h4 className="intake-workflow-title">{workflowResult.graph.title}</h4><p className="intake-workflow-summary">{workflowResult.graph.summary}</p><WorkflowMindMap workflow={workflowResult.graph} fullWorkflow={workflowResult || row?.workspace?.workflow} requestId={row?.id} assessment={row?.workspace?.workflow?.final_invoice_assessment || workflowResult?.final_invoice_assessment} initialPaypal={row?.workspace?.workflow?.paypal_payment || workflowResult?.paypal_payment} contractDocs={contractDocs} /></> : <div className="intake-workflow-loading" role="status">Creating the purchase-specific approval map…</div>}{plan.hasService && <section className="intake-contract-docs"><h4>Service contract documents</h4><p>MSA and SOW checks apply to service engagements. Upload the documents you already have; missing items are flagged for Legal review.</p>{[['msa', 'Master Services Agreement (MSA)'], ['sow', 'Statement of Work (SOW)']].map(([kind, title]) => { const doc = contractDocs.find(d => d.kind === kind); return <div className="intake-contract-document" key={kind}><div><strong>{title}</strong><small>{doc ? <><CheckCircle2 size={14} /> Uploaded: {doc.filename}</> : <><AlertCircle size={14} /> {contractFiles[kind]?.name || 'Not provided yet'}</>}</small></div><label className="p-button"><Upload size={14} /> Choose PDF/DOCX<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e => setContractFiles(files => ({ ...files, [kind]: e.target.files?.[0] || null }))} /></label><button type="button" className="p-button primary" disabled={!contractFiles[kind] || busy} onClick={() => uploadContract(kind)}>{busy ? 'Uploading…' : 'Upload'}</button></div> })}<p className="intake-contract-note">Uploads are stored as supporting evidence. The system does not decide that a contract is legally sufficient; Legal must review it.</p></section>}
 
-          {/* ── CHOSEN VENDORS OR OCR PRE-LISTED COMPANY & ITEMS (EMBEDDED ON MAP PAGE) ── */}
-          <div className="intake-map-divider" />
-          {isInvoiceUpload ? (() => {
-            const invOcr = workflowResult?.invoice_ocr_details || row?.workspace?.workflow?.invoice_ocr_details || row?.requirements?.invoice_ocr_details || {};
-            const ocrItems = invOcr.items?.length ? invOcr.items : items;
-            return (
-              <section className="intake-embedded-sourcing" aria-label="OCR Pre-Listed Supplier and Invoice Items">
+        {/* ── CHOSEN VENDORS OR OCR PRE-LISTED COMPANY & ITEMS (EMBEDDED ON MAP PAGE) ── */}
+        <div className="intake-map-divider" />
+        {isInvoiceUpload ? (() => {
+          const invOcr = workflowResult?.invoice_ocr_details || row?.workspace?.workflow?.invoice_ocr_details || row?.requirements?.invoice_ocr_details || {};
+          const ocrItems = invOcr.items?.length ? invOcr.items : items;
+          return (
+            <section className="intake-embedded-sourcing" aria-label="OCR Pre-Listed Supplier and Invoice Items">
               <div className="intake-sourcing-head">
                 <div>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: 'rgba(16,185,129,0.16)', color: '#4ade80', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
